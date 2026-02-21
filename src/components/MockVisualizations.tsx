@@ -41,7 +41,7 @@ export function RevenueChart() {
   );
 }
 
-// Animated line chart (sparkline style)
+// Animated line chart
 export function TrendLine({ color = "#00d4aa", delay = 0 }: { color?: string; delay?: number }) {
   const points = [20, 35, 28, 45, 40, 58, 52, 65, 60, 72, 68, 78];
   const max = Math.max(...points);
@@ -96,12 +96,12 @@ export function TrendLine({ color = "#00d4aa", delay = 0 }: { color?: string; de
 // Margin waterfall chart
 export function MarginWaterfall() {
   const items = [
-    { label: "Revenue", value: 47832, height: 100, color: "#00d4aa", y: 0 },
-    { label: "COGS", value: -14350, height: 30, color: "#ef4444", y: 0 },
-    { label: "Shipping", value: -4783, height: 10, color: "#ef4444", y: 30 },
-    { label: "Ad Spend", value: -9566, height: 20, color: "#ef4444", y: 40 },
-    { label: "Commission", value: -2392, height: 5, color: "#f59e0b", y: 60 },
-    { label: "Net Profit", value: 16741, height: 35, color: "#00d4aa", y: 65 },
+    { label: "Revenue", value: 100, color: "#00d4aa" },
+    { label: "COGS", value: 30, color: "#ef4444" },
+    { label: "Shipping", value: 10, color: "#ef4444" },
+    { label: "Ad Spend", value: 20, color: "#ef4444" },
+    { label: "Fees", value: 5, color: "#f59e0b" },
+    { label: "Profit", value: 35, color: "#00d4aa" },
   ];
 
   return (
@@ -117,7 +117,7 @@ export function MarginWaterfall() {
               className="w-full rounded-sm"
               style={{ backgroundColor: item.color }}
               initial={{ height: 0 }}
-              whileInView={{ height: `${item.height}%` }}
+              whileInView={{ height: `${item.value}%` }}
               viewport={{ once: true }}
               transition={{ duration: 0.8, delay: 0.1 + i * 0.1, ease: "easeOut" }}
             />
@@ -197,73 +197,197 @@ export function KPIRow() {
   );
 }
 
-// Full dashboard mock
-export function DashboardPreview() {
+// Donut/ring chart for channel split
+export function ChannelDonut() {
+  const segments = [
+    { pct: 42, color: "#00d4aa", label: "TikTok" },
+    { pct: 28, color: "#6366f1", label: "Shopify" },
+    { pct: 18, color: "#f59e0b", label: "Amazon" },
+    { pct: 12, color: "#ec4899", label: "Direct" },
+  ];
+  const r = 40;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 100 100" className="w-24 h-24">
+        {segments.map((seg, i) => {
+          const dashLen = (seg.pct / 100) * circ;
+          const dashOff = -offset;
+          offset += dashLen;
+          return (
+            <motion.circle
+              key={seg.label}
+              cx="50" cy="50" r={r}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth="8"
+              strokeDasharray={`${dashLen} ${circ - dashLen}`}
+              strokeDashoffset={dashOff}
+              strokeLinecap="round"
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.3 + i * 0.15, duration: 0.6 }}
+            />
+          );
+        })}
+      </svg>
+      <div className="space-y-1">
+        {segments.map((seg) => (
+          <div key={seg.label} className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
+            <span className="text-[10px] text-white/50">{seg.label}</span>
+            <span className="text-[10px] text-white/70">{seg.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Heatmap (days x hours)
+export function ActivityHeatmap() {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const data = [
+    [2,4,6,8,9,7,5,3,4,6,8,5],
+    [3,5,7,9,10,8,6,4,5,7,9,6],
+    [1,3,5,7,8,6,4,2,3,5,7,4],
+    [4,6,8,10,10,9,7,5,6,8,10,7],
+    [2,4,6,8,9,7,5,3,4,6,8,5],
+    [1,2,3,4,5,4,3,2,1,2,3,2],
+    [1,1,2,3,3,2,2,1,1,1,2,1],
+  ];
+
+  return (
+    <div className="space-y-2">
+      <span className="text-xs uppercase tracking-widest text-white/30">Order Activity</span>
+      <div className="space-y-1">
+        {days.map((day, di) => (
+          <div key={day} className="flex items-center gap-1">
+            <span className="text-[9px] text-white/30 w-6">{day}</span>
+            <div className="flex gap-0.5">
+              {data[di].map((val, hi) => (
+                <motion.div
+                  key={hi}
+                  className="w-3 h-3 rounded-[2px]"
+                  style={{ backgroundColor: `rgba(0, 212, 170, ${val / 10})` }}
+                  initial={{ opacity: 0, scale: 0 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: 0.02 * (di * 12 + hi), duration: 0.2 }}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Real-time number counter
+export function LiveCounter({ value, prefix = "", suffix = "", label, color = "white" }: {
+  value: number; prefix?: string; suffix?: string; label: string; color?: string;
+}) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 40 }}
+      initial={{ opacity: 0, y: 10 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.1 }}
-      transition={{ duration: 0.8 }}
-      className="relative w-full max-w-4xl mx-auto"
+      viewport={{ once: true }}
+      transition={{ duration: 0.5 }}
+      className="text-center"
     >
-      {/* Browser chrome */}
-      <div className="rounded-xl border border-white/[0.08] bg-[#0a0a1a]/80 backdrop-blur-xl overflow-hidden shadow-2xl shadow-black/50">
-        {/* Title bar */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-white/10" />
-            <div className="w-3 h-3 rounded-full bg-white/10" />
-            <div className="w-3 h-3 rounded-full bg-white/10" />
-          </div>
-          <div className="flex-1 flex justify-center">
-            <div className="px-4 py-1 rounded-md bg-white/[0.04] text-[10px] text-white/30">whut.ai/dashboard</div>
-          </div>
-        </div>
-        
-        {/* Dashboard content */}
-        <div className="p-6 space-y-6">
-          {/* Greeting + voice indicator */}
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-white/40 text-sm">Good morning, Luke</div>
-              <div className="text-white text-xl font-light">Tuesday, February 22</div>
-            </div>
-            <motion.div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#00d4aa]/10 border border-[#00d4aa]/20"
-              animate={{ opacity: [1, 0.6, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <div className="w-2 h-2 rounded-full bg-[#00d4aa]" />
-              <span className="text-[11px] text-[#00d4aa]/80">Listening...</span>
-            </motion.div>
-          </div>
-
-          {/* KPIs */}
-          <KPIRow />
-
-          {/* Two column layout */}
-          <div className="grid grid-cols-5 gap-6">
-            <div className="col-span-3 space-y-6">
-              <RevenueChart />
-              <div className="pt-2">
-                <div className="flex items-baseline justify-between mb-2">
-                  <span className="text-xs uppercase tracking-widest text-white/30">7-Day Trend</span>
-                  <span className="text-[10px] text-[#00d4aa]">↑ 23% vs prior week</span>
-                </div>
-                <TrendLine />
-              </div>
-            </div>
-            <div className="col-span-2 space-y-6">
-              <MarginWaterfall />
-              <MessageQueue />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Glow underneath */}
-      <div className="absolute -bottom-20 left-1/2 -translate-x-1/2 w-[60%] h-40 bg-[#00d4aa]/[0.06] blur-[80px] pointer-events-none" />
+      <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1">{label}</div>
+      <motion.div
+        className="text-2xl font-light"
+        style={{ color }}
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+      >
+        {prefix}{value.toLocaleString()}{suffix}
+      </motion.div>
     </motion.div>
+  );
+}
+
+// Inventory status bars
+export function InventoryStatus() {
+  const products = [
+    { name: "Glow Serum 30ml", stock: 847, capacity: 1000, velocity: "+32/day" },
+    { name: "Vitamin C Drops", stock: 234, capacity: 1000, velocity: "+18/day" },
+    { name: "Night Cream 50ml", stock: 92, capacity: 1000, velocity: "+45/day", alert: true },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <span className="text-xs uppercase tracking-widest text-white/30">Inventory</span>
+      {products.map((p, i) => (
+        <motion.div
+          key={p.name}
+          initial={{ opacity: 0, x: -10 }}
+          whileInView={{ opacity: 1, x: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.2 + i * 0.12 }}
+          className="space-y-1"
+        >
+          <div className="flex justify-between items-baseline">
+            <span className={`text-[11px] ${p.alert ? "text-[#ef4444]" : "text-white/60"}`}>
+              {p.name} {p.alert && "⚠"}
+            </span>
+            <span className="text-[10px] text-white/30">{p.velocity}</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+            <motion.div
+              className="h-full rounded-full"
+              style={{
+                backgroundColor: p.alert ? "#ef4444" : p.stock / p.capacity > 0.5 ? "#00d4aa" : "#f59e0b",
+              }}
+              initial={{ width: 0 }}
+              whileInView={{ width: `${(p.stock / p.capacity) * 100}%` }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, delay: 0.3 + i * 0.12 }}
+            />
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+// Campaign performance radar-ish display
+export function CampaignPerformance() {
+  const campaigns = [
+    { name: "Summer Launch", roas: 4.7, spend: "$2.4K", revenue: "$11.3K", status: "live" },
+    { name: "Creator Push", roas: 6.2, spend: "$890", revenue: "$5.5K", status: "live" },
+    { name: "Retargeting", roas: 3.1, spend: "$1.1K", revenue: "$3.4K", status: "paused" },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <span className="text-xs uppercase tracking-widest text-white/30">Campaigns</span>
+      {campaigns.map((c, i) => (
+        <motion.div
+          key={c.name}
+          initial={{ opacity: 0, y: 8 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.2 + i * 0.1 }}
+          className="flex items-center gap-3 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5"
+        >
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.status === "live" ? "bg-[#00d4aa] animate-pulse" : "bg-white/20"}`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-white/70">{c.name}</div>
+            <div className="text-[10px] text-white/40">{c.spend} → {c.revenue}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-light text-[#00d4aa]">{c.roas}x</div>
+            <div className="text-[9px] text-white/30">ROAS</div>
+          </div>
+        </motion.div>
+      ))}
+    </div>
   );
 }
