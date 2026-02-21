@@ -21,27 +21,27 @@ const item = {
 const features = [
   {
     icon: "⚡",
-    title: "AI Intelligence Layer",
-    description: "Every interaction is powered by frontier AI models. Ask anything. Get answers instantly.",
+    title: "One Interface. Everything.",
+    description: "Your email, calendar, files, analytics, tools — unified into a single intelligent surface. No more tab chaos.",
   },
   {
     icon: "🔗",
-    title: "Unified Integrations",
-    description: "TikTok Shop, Email, Notion, Calendars, Shopify — all connected in one neural interface.",
-  },
-  {
-    icon: "📊",
-    title: "Real-Time Analytics",
-    description: "Live P&L, revenue tracking, creator performance, and campaign ROI across every channel.",
+    title: "Connected by Default",
+    description: "Every app you use, every service you rely on — plugged in and talking to each other. Finally.",
   },
   {
     icon: "🧠",
-    title: "Autonomous Operations",
-    description: "The OS that thinks ahead. Automated workflows, smart alerts, and predictive insights.",
+    title: "AI That Actually Works",
+    description: "Not a chatbot. An operating layer that understands your context, anticipates your needs, and acts on your behalf.",
+  },
+  {
+    icon: "🌀",
+    title: "A New Paradigm",
+    description: "The way we use computers hasn't changed in 40 years. Folders, apps, windows — it's time for something fundamentally different.",
   },
 ];
 
-const logos = ["TikTok Shop", "Shopify", "Amazon", "Notion", "Gmail", "Google Calendar"];
+const logos = ["Email", "Calendar", "Notion", "Shopify", "TikTok Shop", "Google Drive", "Slack", "Analytics"];
 
 export default function Home() {
   const heroRef = useRef(null);
@@ -95,10 +95,10 @@ export default function Home() {
             variants={item}
             className="text-5xl font-light leading-[1.1] text-white sm:text-7xl lg:text-8xl"
           >
-            The Operating System
+            A new way to
             <br />
             <span className="bg-gradient-to-r from-[#00d4aa] via-[#00d4aa] to-[#6366f1] bg-clip-text text-transparent">
-              for Brands
+              use a computer
             </span>
           </motion.h1>
 
@@ -106,8 +106,8 @@ export default function Home() {
             variants={item}
             className="max-w-xl text-base text-white/50 sm:text-lg"
           >
-            AI-powered command center. Connect your entire business — 
-            TikTok Shop, email, analytics, operations — into one intelligent interface.
+            The operating system you were promised but never got.
+            One intelligent interface for everything you do — powered by AI.
           </motion.p>
 
           <motion.div variants={item} className="flex items-center gap-4 mt-2">
@@ -159,10 +159,10 @@ export default function Home() {
           className="mx-auto max-w-6xl"
         >
           <div className="text-center mb-16">
-            <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">Capabilities</p>
+            <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">Why</p>
             <h2 className="text-3xl font-light text-white sm:text-5xl">
-              Everything your brand needs.<br />
-              <span className="text-white/40">Nothing it doesn't.</span>
+              The old way is broken.<br />
+              <span className="text-white/40">This is the fix.</span>
             </h2>
           </div>
 
@@ -196,10 +196,10 @@ export default function Home() {
         >
           <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">Integrations</p>
           <h2 className="text-3xl font-light text-white sm:text-5xl mb-6">
-            Connect everything.
+            Your tools. One place.
           </h2>
           <p className="text-white/40 mb-16 max-w-lg mx-auto">
-            One brain for your entire business. Every platform, every tool, every data point — unified.
+            Everything you already use — connected, synchronized, and working together for the first time.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-6">
@@ -229,9 +229,9 @@ export default function Home() {
           className="mx-auto max-w-3xl text-center"
         >
           <h2 className="text-3xl font-light text-white sm:text-5xl mb-6">
-            Ready to run your brand<br />
+            Ready to experience<br />
             <span className="bg-gradient-to-r from-[#00d4aa] to-[#6366f1] bg-clip-text text-transparent">
-              from the future?
+              what's next?
             </span>
           </h2>
           <Link

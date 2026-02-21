@@ -43,7 +43,7 @@ export default function LoginPage() {
               <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 mt-0.5">OS</span>
             </div>
             <h1 className="text-3xl font-light text-white">Sign in</h1>
-            <p className="text-sm text-white/50">Access your AI-powered brand operating system.</p>
+            <p className="text-sm text-white/50">Access the next generation operating system.</p>
           </div>
 
           {error && (
