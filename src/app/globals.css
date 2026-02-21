@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #06060f;
+  --accent: #00d4aa;
+  --accent-secondary: #6366f1;
+}
+
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-foreground: #ffffff;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg-base);
+  color: white;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+body.dashboard-active {
+  overflow: hidden;
+}
+
+/* Glassmorphism utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+}
+.glass-card-bright {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 0 40px rgba(0, 212, 170, 0.08);
+}
+.glass-input {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: white;
+}
+.glass-button {
+  background: rgba(0, 212, 170, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  border-radius: 12px;
+  color: #00d4aa;
+  box-shadow: 0 0 24px rgba(0, 212, 170, 0.25);
+  transition: all 0.3s ease;
+}
+.glass-button:hover {
+  background: rgba(0, 212, 170, 0.25);
+  box-shadow: 0 0 40px rgba(0, 212, 170, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Background + particles */
+.landing-bg {
+  position: relative;
+  min-height: 100vh;
+  background: #06060f;
+}
+
+.app-bg {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, rgba(0, 212, 170, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.18), transparent 35%),
+    #06060f;
+}
+
+.starfield {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.starfield::before,
+.starfield::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px);
+  background-size: 140px 140px;
+  animation: star-drift 60s linear infinite;
+}
+
+.starfield::after {
+  background-size: 280px 280px;
+  opacity: 0.35;
+  animation-direction: reverse;
+}
+
+@keyframes star-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(80px, -160px, 0);
+  }
+}
