@@ -285,10 +285,28 @@ interface SceneRendererProps {
   scene: SceneNode;
 }
 
-export default function SceneRenderer({ scene }: SceneRendererProps) {
+export default function SceneRenderer({ scene, onClose }: SceneRendererProps & { onClose?: () => void }) {
   return (
-    <div className="w-full">
+    <motion.div
+      className="w-full max-w-4xl mx-auto px-6 py-8"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ type: "spring", stiffness: 180, damping: 24 }}
+    >
+      {onClose && (
+        <motion.button
+          onClick={onClose}
+          className="mb-4 flex items-center gap-2 text-xs text-white/30 hover:text-white/70 transition-colors group"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+        >
+          <span className="inline-block w-6 h-6 rounded-full border border-white/10 group-hover:border-white/30 flex items-center justify-center transition-colors text-[10px]">✕</span>
+          <span className="uppercase tracking-[0.2em]">Close</span>
+        </motion.button>
+      )}
       <SceneNodeRenderer node={scene} index={0} />
-    </div>
+    </motion.div>
   );
 }

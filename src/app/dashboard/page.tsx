@@ -1082,34 +1082,17 @@ export default function DashboardPage() {
 
         {/* ========== V2 SCENE GRAPH RESPONSE ========== */}
         {aiScene && (
-          <motion.div key="ai-scene" className="absolute inset-0 z-30">
-            {/* Mobile */}
-            <div className="md:hidden absolute inset-0 pt-4 pb-24 px-4 overflow-y-auto">
-              <button
-                onClick={closeView}
-                className="sticky top-0 z-10 mb-3 flex items-center gap-2 text-xs text-white/50 hover:text-white/80"
-              >
-                ← Back
-              </button>
-              <SceneRenderer scene={aiScene} />
-            </div>
-            {/* Desktop */}
-            <motion.div
-              className="hidden md:block absolute inset-0 overflow-y-auto pt-6 pb-24 px-8"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="max-w-5xl mx-auto relative">
-                <button
-                  onClick={closeView}
-                  className="absolute -top-1 right-0 z-10 text-xs text-white/40 hover:text-white transition px-3 py-1.5 glass-card"
-                >
-                  ✕ Close
-                </button>
-                <SceneRenderer scene={aiScene} />
-              </div>
-            </motion.div>
+          <motion.div
+            key="ai-scene"
+            className="absolute inset-0 z-30 flex flex-col items-center overflow-y-auto"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Spacer to push content below the shrunken orb */}
+            <div className="shrink-0 h-[45vh] md:h-[40vh]" />
+            <SceneRenderer scene={aiScene} onClose={closeView} />
+            <div className="shrink-0 h-24" />
           </motion.div>
         )}
 
