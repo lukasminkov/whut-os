@@ -247,6 +247,43 @@ export default function DashboardPage() {
     return "chat";
   });
   const [speechActive, setSpeechActive] = useState(false); // whether speech loop is running
+
+  // ── User Profile & Onboarding ──
+  const [userProfile, setUserProfile] = useState<{
+    name?: string;
+    company?: string;
+    role?: string;
+    timezone?: string;
+    onboardingStep?: string;
+    onboardingComplete?: boolean;
+  }>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("whut_user_profile");
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return { onboardingStep: "welcome" };
+  });
+
+  // Save profile to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("whut_user_profile", JSON.stringify(userProfile));
+  }, [userProfile]);
+
+  // Auto-trigger onboarding for new users
+  const onboardingTriggered = useRef(false);
+  useEffect(() => {
+    if (!userProfile.onboardingComplete && !onboardingTriggered.current) {
+      onboardingTriggered.current = true;
+      // Small delay to let the page render first
+      const timer = setTimeout(() => {
+        sendToAI("Hello");
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const tts = useTTS();
   const googleData = useGoogleData();
   const speechLoopRef = useRef(false); // tracks if we should auto-restart listening
@@ -364,6 +401,7 @@ export default function DashboardPage() {
           history: chatHistory,
           googleAccessToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.access_token || null; } catch { return null; } })(),
           googleRefreshToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.refresh_token || null; } catch { return null; } })(),
+          userProfile,
           context: {
             integrations: connectedIntegrations,
             screen: { width: screenW, height: screenH, device },
@@ -416,6 +454,42 @@ export default function DashboardPage() {
         voice.startListening();
       }
 
+      // ── Onboarding state progression ──
+      if (!userProfile.onboardingComplete) {
+        const step = userProfile.onboardingStep || "welcome";
+        if (step === "welcome") {
+          // After welcome, move to name step (user will reply with their name next)
+          setUserProfile(prev => ({ ...prev, onboardingStep: "name" }));
+        } else if (step === "name") {
+          // User just said their name — extract it from the message
+          const name = trimmed.replace(/^(my name is|i'm|i am|call me|it's|hey i'm)\s*/i, "").trim();
+          if (name) {
+            setUserProfile(prev => ({ ...prev, name, onboardingStep: "role" }));
+          }
+        } else if (step === "role") {
+          // User described their role/company
+          const text = trimmed.toLowerCase();
+          let company = "";
+          let role = "";
+          // Try to extract company and role from natural language
+          const atMatch = trimmed.match(/(?:at|for|from)\s+(.+?)(?:\s+as\s+|\s*,\s*|\s*$)/i);
+          if (atMatch) company = atMatch[1].trim();
+          const roleMatch = trimmed.match(/(?:i'm a|i am a|i'm the|i am the|i work as)\s+(.+?)(?:\s+at\s+|\s*$)/i);
+          if (roleMatch) role = roleMatch[1].trim();
+          // Fallback: just save the whole thing as role
+          if (!role && !company) role = trimmed;
+          setUserProfile(prev => ({ ...prev, company: company || prev.company, role: role || prev.role, onboardingStep: "integrations" }));
+        } else if (step === "integrations") {
+          // Complete onboarding
+          setUserProfile(prev => ({
+            ...prev,
+            onboardingComplete: true,
+            onboardingStep: "complete",
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }));
+        }
+      }
+
       // Update chat history
       const hasAnyResponse = (result.blocks && result.blocks.length > 0) || result.scene?.layout;
       if (hasAnyResponse) {
@@ -448,7 +522,7 @@ export default function DashboardPage() {
       setAiLoading(false);
       setLoadingAction(null);
     }
-  }, [chatHistory]);
+  }, [chatHistory, userProfile]);
 
   const handleSubmit = async () => {
     const trimmed = input.trim();

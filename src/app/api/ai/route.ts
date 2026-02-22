@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { renderSceneTool, wrapV1Block } from "@/lib/scene-types";
 import { sendEmail, refreshAccessToken } from "@/lib/google";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 // Legacy tools kept for backward compat detection only
 const V1_TOOL_NAMES = [
@@ -13,15 +15,81 @@ const V1_TOOL_NAMES = [
   "render_email_compose",
 ];
 
+// ── Skill Loading ──────────────────────────────────────────────
+
+function loadSkill(filename: string): string {
+  try {
+    const skillPath = join(process.cwd(), "src", "skills", filename);
+    return readFileSync(skillPath, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+function loadSkills(connectedIntegrations: string[], isOnboarding: boolean): string {
+  const skills: string[] = [];
+  let tokenEstimate = 0;
+  const TOKEN_BUDGET = 6000; // ~6K tokens for skills
+
+  // Always load core OS skill
+  const coreSkill = loadSkill("core-os.md");
+  if (coreSkill) {
+    skills.push(coreSkill);
+    tokenEstimate += coreSkill.length / 4; // rough estimate
+  }
+
+  // Load onboarding skill if in onboarding mode
+  if (isOnboarding) {
+    const onboardingSkill = loadSkill("onboarding.md");
+    if (onboardingSkill) {
+      skills.push(onboardingSkill);
+      tokenEstimate += onboardingSkill.length / 4;
+    }
+    return skills.join("\n\n---\n\n");
+  }
+
+  // Load integration skills based on connected integrations
+  const integrationSkillMap: Record<string, string> = {
+    gmail: "gmail.md",
+    calendar: "google-calendar.md",
+    drive: "google-drive.md",
+    tiktok: "tiktok-shop.md",
+  };
+
+  for (const integration of connectedIntegrations) {
+    if (tokenEstimate > TOKEN_BUDGET) break;
+    const filename = integrationSkillMap[integration];
+    if (filename) {
+      const skill = loadSkill(filename);
+      if (skill) {
+        skills.push(skill);
+        tokenEstimate += skill.length / 4;
+      }
+    }
+  }
+
+  return skills.join("\n\n---\n\n");
+}
+
+// ── System Prompt Builder ──────────────────────────────────────
+
+interface UserProfile {
+  name?: string;
+  company?: string;
+  role?: string;
+  timezone?: string;
+  onboardingStep?: string; // "welcome" | "name" | "role" | "integrations" | "complete"
+}
+
 function buildSystemPrompt(context?: {
   integrations?: string[];
   screen?: { width: number; height: number };
   time?: string;
   timezone?: string;
+  userProfile?: UserProfile;
 }) {
-  const integrations = context?.integrations?.length
-    ? context.integrations.join(", ")
-    : "none";
+  const integrations = context?.integrations || [];
+  const integrationsStr = integrations.length ? integrations.join(", ") : "none";
   const screen = context?.screen
     ? `${context.screen.width}x${context.screen.height}`
     : "unknown";
@@ -32,96 +100,58 @@ function buildSystemPrompt(context?: {
         ? "tablet"
         : "desktop";
   const time = context?.time || new Date().toISOString();
-  const tz = context?.timezone || "UTC";
+  const tz = context?.timezone || context?.userProfile?.timezone || "UTC";
 
-  return `You are WHUT OS — a voice-first AI operating system built by Whut.AI LLC.
+  const profile = context?.userProfile;
+  const isOnboarding = !profile?.name || profile?.onboardingStep === "welcome" || profile?.onboardingStep === "name" || profile?.onboardingStep === "role" || profile?.onboardingStep === "integrations";
 
-YOUR USER:
-- Name: Lukas Minkov (call him Luke)
-- Company: Whut.AI LLC
-- Email: minkovgroup@gmail.com
-- He runs multiple businesses including BrandPushers (TikTok Shop accelerator) and MediaLabs
-- He's based in Vienna, Austria but travels frequently
-- Be warm, personable, and proactive. You know him. You're his OS.
+  // Load skills dynamically
+  const skillsContent = loadSkills(integrations, isOnboarding);
 
-PERSONALITY:
-- You're not a chatbot — you're an intelligent operating system
-- Be conversational and natural, like Jarvis from Iron Man
-- Reference things from the conversation naturally
-- Be proactive: suggest things, notice patterns, anticipate needs
-- Keep spoken responses concise (1-2 sentences for TTS) but make them feel personal
+  // Build user context block
+  let userContext = "";
+  if (profile?.name) {
+    userContext = `
+## User Profile
+- Name: ${profile.name}${profile.company ? `\n- Company: ${profile.company}` : ""}${profile.role ? `\n- Role: ${profile.role}` : ""}
+- Timezone: ${tz}
+- Connected integrations: ${integrationsStr}`;
+  } else {
+    userContext = `
+## User Profile
+- NEW USER — no profile yet. Begin onboarding.
+- Connected integrations: ${integrationsStr}`;
+  }
 
-UI: Glass morphism dark theme.
+  // Onboarding context
+  let onboardingContext = "";
+  if (isOnboarding) {
+    const step = profile?.onboardingStep || "welcome";
+    onboardingContext = `
+## ONBOARDING MODE
+Current step: ${step}
+${profile?.name ? `Name collected: ${profile.name}` : "Name: not yet collected"}
+${profile?.company ? `Company: ${profile.company}` : ""}
+${profile?.role ? `Role: ${profile.role}` : ""}
 
-You have ONE tool: render_scene. ALWAYS use it for EVERY response — even simple conversational ones.
+Follow the onboarding flow described in the Onboarding Skill above.
+- If step is "welcome": Greet them and ask their name
+- If step is "name": They just told you their name. Acknowledge it warmly, ask what they do (company/role)
+- If step is "role": They told you their role. Show available integrations as a card-grid
+- If step is "integrations": Thank them, complete onboarding with a welcoming scene`;
+  }
 
-CRITICAL RULE — EVERY scene MUST start with a text-block as the FIRST child:
-- The text-block content is what gets spoken aloud via TTS and shown in the conversation transcript.
-- It should be a brief, natural conversational response (1-2 sentences).
-- Examples: "Good morning, Lukas. Here's your day at a glance.", "Here's a draft email for you to review.", "Here are your recent emails."
-- NEVER omit the text-block. NEVER return a scene without one.
+  return `${skillsContent}
 
-CONTEXT (this request):
-- Connected integrations: ${integrations}
+${userContext}
+
+## Context (this request)
 - Screen: ${screen} (${device})
 - Time: ${time} (${tz})
+${onboardingContext}
 
-INTENT → COMPONENT MAPPING (follow these strictly):
-- "send email" / "compose email" / "write email" / "email [person] about [topic]" → email-compose (NOT email-list)
-  - If user specifies recipient and topic: generate a draft with to/subject/body in email-compose
-  - If user says "send email" without details: ask WHO and WHAT in the text-block, show a blank email-compose with empty fields
-- "show emails" / "check inbox" / "my emails" / "read emails" → email-list with dataSource gmail/getRecentEmails
-- "good morning" / "morning" / "briefing" / "start my day" → morning briefing scene: text-block greeting + stat-cards + calendar-events + email-list in a grid
-- "how are you" / "hey" / casual chat → text-block with friendly response + optionally stat-cards or a simple scene
-- "calendar" / "schedule" / "meetings" → calendar-events with dataSource calendar/getUpcomingEvents
-- "files" / "drive" / "documents" → file-list with dataSource drive/getRecentFiles
-
-COMPONENT TYPES:
-- text-block: Short text/markdown content — MUST be first child of every scene
-- stat-cards: Metric cards with { stats: [{label, value, change?, icon?}] }
-- email-list: Email inbox list (use dataSource: { integration: "gmail", method: "getRecentEmails", params: { maxResults: 10 } })
-- calendar-events: Calendar schedule (use dataSource: { integration: "calendar", method: "getUpcomingEvents", params: { maxResults: 5 } })
-- file-list: Drive files (use dataSource: { integration: "drive", method: "getRecentFiles" })
-- chart: Charts with { chartType: "line"|"bar"|"area"|"pie", data: [{label, value}], xLabel?, yLabel? }
-- card-grid: Visual cards with images for lists
-- comparison: Side-by-side comparison of items with specs/pros/cons
-- table: Structured tabular data with { columns: [{key, label}], rows: [{...}] }
-- timeline: Chronological events
-- markdown: Longer markdown content
-- email-compose: Email draft with { to, subject, body } — for composing/sending emails
-- commerce-summary: Revenue/orders/profit summary
-- action-button: Clickable action trigger
-
-LAYOUT NODES:
-- stack: Vertical stack with gap (USE THIS as root for most scenes)
-- grid: CSS grid with columns (2-4) and gap — for dashboards
-- flex: Flexbox with direction (row/col) and gap
-
-DATA BINDINGS:
-- Use dataSource for connected integrations (real data fetched at render time)
-- Use inline data for AI-generated content (comparisons, stats, recommendations)
-- IMPORTANT: Only use dataSource for integrations listed in "Connected integrations" above. If not connected, tell user to connect via Integrations page.
-
-SCENE STRUCTURE (always follow this pattern):
-{
-  "layout": {
-    "type": "stack",
-    "gap": 16,
-    "children": [
-      { "type": "text-block", "data": { "content": "Your spoken response here." } },
-      // ... other components
-    ]
-  }
-}
-
-RULES:
-1. ALWAYS include a text-block as the FIRST child with a conversational response.
-2. Compose SCENES, not single widgets. "Good morning" → text-block + stats + calendar + emails.
-3. Use dataSource for connected integrations. Use inline data for AI-generated content.
-4. Grid layouts: 2-4 columns for dashboards. Stack for single-focus views.
-5. For email COMPOSING: use email-compose (NOT email-list). For email VIEWING: use email-list.
-6. Keep visual content scannable. The text-block handles the conversational element.
-7. Be direct, knowledgeable, and visually expressive. You ARE the OS.`;
+## UI Theme
+Glass morphism dark theme. All components render with translucent glass cards, subtle borders, and backdrop blur.`;
 }
 
 export async function POST(req: NextRequest) {
@@ -131,6 +161,7 @@ export async function POST(req: NextRequest) {
     googleAccessToken,
     googleRefreshToken,
     context,
+    userProfile,
   } = await req.json();
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -141,11 +172,16 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const systemPrompt = buildSystemPrompt(context);
+  // Merge userProfile into context
+  const enrichedContext = {
+    ...context,
+    userProfile: userProfile || {},
+  };
+
+  const systemPrompt = buildSystemPrompt(enrichedContext);
   const messages = [...(history || []), { role: "user", content: message }];
 
   try {
-    // Call Claude with the single render_scene tool
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -186,7 +222,6 @@ export async function POST(req: NextRequest) {
                 const result = await sendEmail(token, to, subject, body);
                 actionResults["send_email"] = { success: true, messageId: result.id };
               } catch (err: any) {
-                // Try refresh
                 if (googleRefreshToken && err.message?.includes("401")) {
                   try {
                     const refreshed = await refreshAccessToken(googleRefreshToken);
@@ -203,27 +238,23 @@ export async function POST(req: NextRequest) {
               }
             }
           }
-          // create_event and search_drive can be added here
         }
       }
     }
 
     // Parse content blocks into response format
-    // Supports both V2 (render_scene) and V1 (old tool names) for backward compat
     const blocks: any[] = [];
     for (const block of data.content || []) {
       if (block.type === "text" && block.text) {
         blocks.push({ type: "text", content: block.text });
       } else if (block.type === "tool_use") {
         if (block.name === "render_scene") {
-          // V2: scene graph
           blocks.push({
             type: "render_scene",
             data: block.input,
             actionResults,
           });
         } else if (V1_TOOL_NAMES.includes(block.name)) {
-          // V1 backward compat: wrap old tool output in a scene node
           const sceneNode = wrapV1Block(block.name, block.input);
           blocks.push({
             type: "render_scene",
@@ -231,13 +262,11 @@ export async function POST(req: NextRequest) {
               layout: { type: "stack", gap: 12, children: [sceneNode] },
             },
           });
-          // Also emit old format for existing VisualizationEngine
           blocks.push({ type: block.name, data: block.input });
         }
       }
     }
 
-    // Extract scene from blocks for top-level access
     const sceneBlock = blocks.find((b: any) => b.type === "render_scene");
     const scene = sceneBlock ? sceneBlock.data : undefined;
 
