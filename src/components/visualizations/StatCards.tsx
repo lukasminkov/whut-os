@@ -3,14 +3,20 @@
 import { motion } from "framer-motion";
 import type { StatsData } from "@/lib/visualization-tools";
 
-export default function StatCards({ data }: { data: StatsData }) {
+export default function StatCards({ data }: { data: any }) {
+  // Handle both { title, stats: [...] } and { stats: [...] } and direct array
+  const stats: StatsData["stats"] = Array.isArray(data) ? data : (data?.stats ?? []);
+  const title = data?.title;
+
   return (
     <div className="w-full">
-      <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-4">
-        {data.title}
-      </div>
+      {title && (
+        <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-4">
+          {title}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {data.stats.map((stat, i) => (
+        {stats.map((stat: any, i: number) => (
           <motion.div
             key={i}
             className="glass-card-bright p-4 text-center"
@@ -27,9 +33,9 @@ export default function StatCards({ data }: { data: StatsData }) {
             {stat.change && (
               <div
                 className={`mt-2 text-xs font-medium ${
-                  stat.changeDirection === "up"
+                  (stat.changeDirection === "up" || stat.change.startsWith("+") || stat.change.startsWith("↑"))
                     ? "text-emerald-300"
-                    : stat.changeDirection === "down"
+                    : (stat.changeDirection === "down" || stat.change.startsWith("-") || stat.change.startsWith("↓"))
                     ? "text-rose-300"
                     : "text-white/50"
                 }`}

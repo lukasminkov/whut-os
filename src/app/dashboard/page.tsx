@@ -305,15 +305,8 @@ export default function DashboardPage() {
 
   const resolveView = (text: string): ViewKey => {
     const normalized = text.toLowerCase();
-    if (/revenue|sales|earnings/.test(normalized)) return "revenue";
-    if (/campaign|ads|adset/.test(normalized)) return "campaigns";
-    if (/creator|influencer/.test(normalized)) return "creators";
-    if (/email|inbox|messages|gmail/.test(normalized)) return "emails";
-    if (/calendar|events|schedule|meetings/.test(normalized)) return "calendar";
-    if (/drive|files|documents|docs/.test(normalized)) return "drive";
-    if (/finance|profit|expenses|p&l/.test(normalized)) return "finance";
-    if (/brief|briefing|morning|summary|overview/.test(normalized)) return "briefing";
-    if (/help|commands/.test(normalized)) return "help";
+    // Only "help" uses old v1 views — everything else goes to AI for v2 scene rendering
+    if (/^help$|^commands$/.test(normalized.trim())) return "help";
     return null;
   };
 
