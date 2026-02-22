@@ -11,6 +11,7 @@ import AIOrb from "@/components/AIOrb";
 import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
 import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
+import ConversationTranscript, { type TranscriptMessage } from "@/components/ConversationTranscript";
 import {
   Area,
   AreaChart,
@@ -215,19 +216,25 @@ const MobileViewContainer = ({ children, onClose }: { children: ReactNode; onClo
   </motion.div>
 );
 
+let msgIdCounter = 0;
+function nextMsgId() {
+  return `msg-${++msgIdCounter}-${Date.now()}`;
+}
+
 export default function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>(null);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [showGreeting, setShowGreeting] = useState(true);
   const [focusedPanel, setFocusedPanel] = useState<string | null>(null);
-  const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [aiBlocks, setAiBlocks] = useState<VisualizationBlock[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<{ id: string; from: string; subject: string; snippet: string; date: string; unread: boolean; important: boolean } | null>(null);
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
   const googleData = useGoogleData();
 
   useEffect(() => {
@@ -269,15 +276,22 @@ export default function DashboardPage() {
     return null;
   };
 
-  const handleSubmit = async () => {
-    const trimmed = input.trim();
+  // Centralized AI call function (used by both text submit and voice)
+  const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
     const research = parseResearchTopic(trimmed);
     setInput("");
     setThinking(true);
     setActiveView(null);
-    setAiResponse(null);
     setAiBlocks(null);
+
+    // Add user message to transcript
+    setTranscriptMessages(prev => [...prev, {
+      id: nextMsgId(),
+      role: "user",
+      text: trimmed,
+      timestamp: Date.now(),
+    }]);
 
     const target = research ? null : resolveView(trimmed);
     if (target) {
@@ -292,9 +306,9 @@ export default function DashboardPage() {
     }
 
     setAiLoading(true);
-    setAiResponse("");
     setAiBlocks(null);
     setLoadingAction(detectLoadingAction(trimmed));
+
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
@@ -312,125 +326,80 @@ export default function DashboardPage() {
       }
       const result = await response.json();
       setThinking(false);
-      
+
       if (result.blocks && result.blocks.length > 0) {
-        // Check if we have any visualization blocks (non-text)
         const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
         if (hasVisuals) {
           setAiBlocks(result.blocks);
-          setAiResponse(null);
-        } else {
-          // Text-only response
-          const textContent = result.blocks
-            .filter((b: any) => b.type === "text")
-            .map((b: any) => b.content)
-            .join("\n\n");
-          setAiResponse(textContent);
-          setAiBlocks(null);
         }
-        // Build text summary for chat history
+
+        // Extract text for transcript
         const textParts = result.blocks
           .filter((b: any) => b.type === "text")
           .map((b: any) => b.content)
-          .join("\n\n");
+          .join(" ");
+        
+        const summaryText = textParts || (hasVisuals ? "Here you go." : "Done.");
+
+        // Add assistant message to transcript
+        setTranscriptMessages(prev => [...prev, {
+          id: nextMsgId(),
+          role: "assistant",
+          text: summaryText,
+          timestamp: Date.now(),
+        }]);
+
         setChatHistory(prev => [
           ...prev,
           { role: "user", content: trimmed },
           { role: "assistant", content: textParts || "[visualization response]" },
         ]);
       } else {
-        setAiResponse("I couldn't generate a response. Please try again.");
+        setTranscriptMessages(prev => [...prev, {
+          id: nextMsgId(),
+          role: "assistant",
+          text: "I couldn't generate a response. Please try again.",
+          timestamp: Date.now(),
+        }]);
       }
     } catch (error: any) {
-      setAiResponse(`Error: ${error?.message || "Request failed"}`);
+      setTranscriptMessages(prev => [...prev, {
+        id: nextMsgId(),
+        role: "assistant",
+        text: `Error: ${error?.message || "Request failed"}`,
+        timestamp: Date.now(),
+      }]);
       setThinking(false);
     } finally {
       setAiLoading(false);
       setLoadingAction(null);
     }
+  }, [chatHistory]);
+
+  const handleSubmit = async () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    sendToAI(trimmed);
   };
 
   // ── Voice Input ──
   const inputRef = useRef<HTMLInputElement>(null);
   const handleVoiceFinal = useCallback((text: string) => {
-    setInput(text);
-    // Auto-submit after a short delay so user sees the transcript
-    setTimeout(() => {
-      setInput((current) => {
-        const t = current.trim();
-        if (t) {
-          // Trigger submit by simulating the flow
-          const trimmed = t;
-          const research = parseResearchTopic(trimmed);
-          setThinking(true);
-          setActiveView(null);
-          setAiResponse(null);
-          setAiBlocks(null);
-
-          const target = research ? null : resolveView(trimmed);
-          if (target) {
-            setAiLoading(false);
-            setTimeout(() => {
-              setActiveView(target);
-              setThinking(false);
-            }, 1000);
-          } else {
-            // Trigger AI call
-            setAiLoading(true);
-            setAiResponse("");
-            setAiBlocks(null);
-            fetch("/api/ai", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                message: trimmed,
-                history: chatHistory,
-                googleAccessToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.access_token || null; } catch { return null; } })(),
-                googleRefreshToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.refresh_token || null; } catch { return null; } })(),
-              }),
-            })
-              .then(async (response) => {
-                if (!response.ok) {
-                  const data = await response.json().catch(() => ({}));
-                  throw new Error(data?.error || "Request failed");
-                }
-                return response.json();
-              })
-              .then((result) => {
-                setThinking(false);
-                if (result.blocks && result.blocks.length > 0) {
-                  const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
-                  if (hasVisuals) {
-                    setAiBlocks(result.blocks);
-                    setAiResponse(null);
-                  } else {
-                    const textContent = result.blocks.filter((b: any) => b.type === "text").map((b: any) => b.content).join("\n\n");
-                    setAiResponse(textContent);
-                    setAiBlocks(null);
-                  }
-                  const textParts = result.blocks.filter((b: any) => b.type === "text").map((b: any) => b.content).join("\n\n");
-                  setChatHistory((prev) => [...prev, { role: "user", content: trimmed }, { role: "assistant", content: textParts || "[visualization response]" }]);
-                } else {
-                  setAiResponse("I couldn't generate a response. Please try again.");
-                }
-              })
-              .catch((error: any) => {
-                setAiResponse(`Error: ${error?.message || "Request failed"}`);
-                setThinking(false);
-              })
-              .finally(() => setAiLoading(false));
-          }
-        }
-        return "";
-      });
-    }, 400);
-  }, [chatHistory]);
+    setInput("");
+    sendToAI(text);
+  }, [sendToAI]);
 
   const voice = useVoiceInput({
     onTranscript: (text) => setInput(text),
     onFinalTranscript: handleVoiceFinal,
     autoSubmit: true,
+    silenceTimeout: 1500,
   });
+
+  // Track voice mode
+  useEffect(() => {
+    setIsVoiceMode(voice.state === "listening" || voice.state === "processing");
+  }, [voice.state]);
 
   // Push-to-talk: hold spacebar
   useEffect(() => {
@@ -465,9 +434,9 @@ export default function DashboardPage() {
     setFocusedPanel((prev) => (prev === id ? null : id));
   };
 
-  const orbSize = activeView ? 180 : 300;
-  const mobileOrbSize = activeView ? 100 : 160;
-  const closeView = () => setActiveView(null);
+  const orbSize = activeView || aiBlocks ? 180 : 300;
+  const mobileOrbSize = activeView || aiBlocks ? 100 : 160;
+  const closeView = () => { setActiveView(null); setAiBlocks(null); };
 
   return (
     <div
@@ -478,8 +447,8 @@ export default function DashboardPage() {
       <div className="absolute inset-0 pointer-events-none">
         <motion.div
           animate={{
-            y: activeView ? -80 : 0,
-            scale: activeView ? 0.7 : 1,
+            y: activeView || aiBlocks ? -80 : 0,
+            scale: activeView || aiBlocks ? 0.7 : 1,
           }}
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -491,7 +460,7 @@ export default function DashboardPage() {
             <AIOrb state={voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
           </div>
           <AnimatePresence>
-            {!activeView && showGreeting && !loadingAction && (
+            {!activeView && !aiBlocks && showGreeting && !loadingAction && (
               <motion.p
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -515,6 +484,9 @@ export default function DashboardPage() {
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
+
+      {/* Floating conversation transcript */}
+      <ConversationTranscript messages={transcriptMessages} maxVisible={5} />
 
       <AnimatePresence mode="wait">
         {/* ========== REVENUE ========== */}
@@ -1006,86 +978,18 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ========== AI RESPONSE (Text only) ========== */}
-        {(aiResponse !== null && !aiBlocks) && (
-          <motion.div key="ai-response" className="absolute inset-0 z-30">
-            {/* Mobile AI response */}
-            <div className="md:hidden absolute inset-0 flex items-start justify-center pt-16 pb-24 px-4 overflow-y-auto">
-              <motion.div
-                className="w-full bg-white/[0.03] backdrop-blur-md border border-white/[0.06] rounded-2xl p-4 relative"
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-              >
-                <button
-                  onClick={() => { setAiResponse(null); setAiLoading(false); }}
-                  className="absolute right-3 top-2 text-[10px] text-white/40 hover:text-white"
-                >✕</button>
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/50">
-                  {aiLoading && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#00d4aa] animate-pulse" />}
-                  {aiLoading && !aiResponse ? "Thinking" : "WHUT OS"}
-                </div>
-                <div className="mt-3 max-h-[60vh] overflow-y-auto text-sm text-white/70 scrollbar-thin">
-                  {aiLoading && !aiResponse ? (
-                    <div className="flex items-center gap-2 text-white/40">
-                      <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Synthesizing...</motion.span>
-                    </div>
-                  ) : (
-                    <div className="prose prose-invert max-w-none text-sm text-white/70 prose-headings:text-white prose-a:text-[#00d4aa] prose-strong:text-white/90">
-                      <ReactMarkdown>{aiResponse ?? ""}</ReactMarkdown>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Desktop AI response */}
-            <Panel
-              id="ai-response"
-              style={{ top: "15%", left: "50%", width: 560, maxWidth: "90vw", height: 440, transform: "translateX(-50%)" }}
-              className="bg-white/[0.03] backdrop-blur-md border border-white/[0.06] rounded-2xl"
-              onClose={() => { setAiResponse(null); setAiLoading(false); }}
-              onFocus={handleFocus}
-              isFocused={focusedPanel === "ai-response"}
-              isDimmed={!!focusedPanel && focusedPanel !== "ai-response"}
-            >
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/50">
-                {aiLoading && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#00d4aa] animate-pulse" />}
-                {aiLoading && !aiResponse ? "Thinking" : "WHUT OS"}
-              </div>
-              <div className="mt-4 max-h-[360px] overflow-y-auto pr-2 text-sm text-white/70 scrollbar-thin">
-                {aiLoading && !aiResponse ? (
-                  <div className="flex items-center gap-2 text-white/40">
-                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Synthesizing...</motion.span>
-                  </div>
-                ) : (
-                  <div className="prose prose-invert max-w-none text-sm text-white/70 prose-headings:text-white prose-a:text-[#00d4aa] prose-strong:text-white/90">
-                    <ReactMarkdown>{aiResponse ?? ""}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== AI VISUALIZATION RESPONSE ========== */}
+        {/* ========== AI VISUALIZATION RESPONSE (center of HUD) ========== */}
         {aiBlocks && (
           <motion.div key="ai-viz" className="absolute inset-0 z-30">
             {/* Mobile */}
             <div className="md:hidden absolute inset-0 pt-4 pb-24 px-4 overflow-y-auto">
               <button
-                onClick={() => { setAiBlocks(null); setAiResponse(null); setAiLoading(false); }}
+                onClick={() => { setAiBlocks(null); }}
                 className="sticky top-0 z-10 mb-3 flex items-center gap-2 text-xs text-white/50 hover:text-white/80"
               >
                 ← Back
               </button>
-              {aiLoading ? (
-                <div className="flex items-center justify-center h-40">
-                  <motion.span className="text-white/40 text-sm" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Materializing...</motion.span>
-                </div>
-              ) : (
-                <VisualizationEngine blocks={aiBlocks} />
-              )}
+              <VisualizationEngine blocks={aiBlocks} />
             </div>
 
             {/* Desktop */}
@@ -1097,35 +1001,29 @@ export default function DashboardPage() {
             >
               <div className="max-w-4xl mx-auto relative">
                 <button
-                  onClick={() => { setAiBlocks(null); setAiResponse(null); setAiLoading(false); }}
+                  onClick={() => { setAiBlocks(null); }}
                   className="absolute -top-1 right-0 z-10 text-xs text-white/40 hover:text-white transition px-3 py-1.5 glass-card"
                 >
                   ✕ Close
                 </button>
-                {aiLoading ? (
-                  <div className="flex items-center justify-center h-60">
-                    <motion.span className="text-white/40 text-sm" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Materializing...</motion.span>
-                  </div>
-                ) : (
-                  <VisualizationEngine blocks={aiBlocks} />
-                )}
+                <VisualizationEngine blocks={aiBlocks} />
               </div>
             </motion.div>
           </motion.div>
         )}
 
         {/* ========== LOADING STATE ========== */}
-        {aiLoading && !aiResponse && !aiBlocks && (
-          <motion.div key="ai-loading" className="absolute inset-0 z-30 flex items-center justify-center">
+        {aiLoading && !aiBlocks && (
+          <motion.div key="ai-loading" className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
             <motion.div
-              className="glass-card-bright px-8 py-6 text-center"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
+              className="px-6 py-3 text-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
             >
               <div className="flex items-center gap-3">
                 <span className="inline-block h-2 w-2 rounded-full bg-[#00d4aa] animate-pulse" />
-                <motion.span className="text-sm text-white/50" animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }}>
-                  Synthesizing response...
+                <motion.span className="text-sm text-white/40" animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity }}>
+                  Thinking...
                 </motion.span>
               </div>
             </motion.div>
@@ -1184,6 +1082,15 @@ export default function DashboardPage() {
               ))}
             </div>
             <span className="text-[10px] uppercase tracking-[0.3em] text-white/40">Listening...</span>
+            {input && (
+              <motion.p
+                className="text-xs text-white/50 max-w-[280px] text-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                {input}
+              </motion.p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1202,52 +1109,72 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Input bar */}
-      <div className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2">
-        {/* Mic button */}
-        <button
-          onClick={voice.toggleListening}
-          className={`relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 ${
-            voice.state === "listening"
-              ? "bg-red-500/20 border-red-500/50 text-red-400"
-              : voice.state === "error"
-              ? "bg-red-500/10 border-red-500/30 text-red-400/60"
-              : "glass-button text-white/40 hover:text-white/70"
-          }`}
-          title={voice.state === "listening" ? "Stop listening" : "Voice input (or hold Space)"}
-        >
-          {voice.state === "listening" && (
+      {/* Input bar — minimized during voice mode */}
+      <AnimatePresence>
+        {!isVoiceMode && (
+          <motion.div
+            className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* Mic button */}
+            <button
+              onClick={voice.toggleListening}
+              className="relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 glass-button text-white/40 hover:text-white/70"
+              title="Voice input (or hold Space)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+              </svg>
+            </button>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder="Ask WHUT OS..."
+              className="glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40"
+            />
+            <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.2em]">
+              →
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Minimal mic button when in voice mode (bottom center) */}
+      <AnimatePresence>
+        {isVoiceMode && (
+          <motion.button
+            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-center w-12 h-12 rounded-full bg-red-500/20 border border-red-500/40 text-red-400"
+            onClick={voice.stopListening}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            title="Stop listening"
+          >
             <motion.div
-              className="absolute inset-0 rounded-xl border-2 border-red-500/40"
-              animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0, 0.5] }}
+              className="absolute inset-0 rounded-full border-2 border-red-500/30"
+              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0, 0.4] }}
               transition={{ duration: 1.5, repeat: Infinity }}
             />
-          )}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" x2="12" y1="19" y2="22" />
-          </svg>
-        </button>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              handleSubmit();
-            }
-          }}
-          placeholder={voice.state === "listening" ? "Listening..." : "Ask WHUT OS..."}
-          className={`glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40 ${
-            voice.state === "listening" ? "placeholder:text-[#00d4aa]/60" : ""
-          }`}
-        />
-        <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.2em]">
-          →
-        </button>
-      </div>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
