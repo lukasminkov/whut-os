@@ -4,92 +4,27 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { AnimatePresence, motion } from "framer-motion";
-import ReactMarkdown from "react-markdown";
 import VisualizationEngine from "@/components/VisualizationEngine";
 import type { VisualizationBlock } from "@/lib/visualization-tools";
 import SceneRenderer from "@/components/SceneRenderer";
 import type { SceneNode } from "@/lib/scene-types";
-import { isLayoutNode } from "@/lib/scene-types";
 import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
-import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
-import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
-import type { TranscriptMessage } from "@/components/ConversationTranscript";
 import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
 import { trackUsage, estimateTokens } from "@/lib/usage";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 const COMMANDS = [
-  "revenue",
-  "sales",
-  "campaigns",
-  "creators",
-  "emails",
-  "inbox",
+  "send email",
+  "show emails",
   "calendar",
   "drive",
-  "finance",
-  "profit",
-  "briefing",
-  "morning",
   "research [topic]",
   "help",
 ] as const;
 
-type ViewKey =
-  | "revenue"
-  | "campaigns"
-  | "creators"
-  | "emails"
-  | "calendar"
-  | "drive"
-  | "finance"
-  | "briefing"
-  | "help"
-  | null;
-
-const revenueData = Array.from({ length: 30 }).map((_, index) => {
-  const base = 3200 + Math.sin(index / 3) * 800;
-  return {
-    day: index + 1,
-    shopify: Math.round(base + Math.random() * 900),
-    amazon: Math.round(base * 0.8 + Math.random() * 700),
-    tiktok: Math.round(base * 0.6 + Math.random() * 500),
-  };
-});
-
-const financeData = [
-  { name: "Operations", value: 38 },
-  { name: "Ad Spend", value: 26 },
-  { name: "Payroll", value: 18 },
-  { name: "Tools", value: 10 },
-  { name: "Other", value: 8 },
-];
-
-const sparklineData = Array.from({ length: 12 }).map((_, index) => ({
-  name: index + 1,
-  value: 18 + Math.sin(index / 2) * 6 + Math.random() * 3,
-}));
-
-const creatorSpotlight = Array.from({ length: 10 }).map((_, index) => ({
-  name: index,
-  value: 26 + Math.sin(index / 3) * 10 + Math.random() * 4,
-}));
+type ViewKey = "help" | null;
 
 const panelMotion = {
   initial: { opacity: 0, scale: 0.86, y: 24, rotate: -1.5 },
@@ -126,36 +61,17 @@ const Panel = ({
   style,
   className = "",
   onClose,
-  onFocus,
-  isFocused,
-  isDimmed,
 }: {
   id: string;
   children: ReactNode;
   style: CSSProperties;
   className?: string;
   onClose?: () => void;
-  onFocus?: (id: string) => void;
-  isFocused?: boolean;
-  isDimmed?: boolean;
 }) => (
   <motion.div
     className={`absolute glass-card p-5 hidden md:block ${className}`}
-    style={{
-      ...style,
-      opacity: isDimmed ? 0.7 : 1,
-      zIndex: isFocused ? 60 : style?.zIndex,
-      boxShadow: isFocused
-        ? "0 0 0 1px rgba(255,255,255,0.35), 0 18px 40px rgba(0, 212, 170, 0.18)"
-        : undefined,
-      cursor: "grab",
-    }}
-    onClick={(event) => {
-      event.stopPropagation();
-      onFocus?.(id);
-    }}
+    style={{ ...style, cursor: "grab" }}
     {...panelMotion}
-    animate={{ ...panelMotion.animate, scale: isFocused ? 1.02 : 1 }}
     drag
     dragMomentum={false}
     dragElastic={0 as number}
@@ -175,13 +91,6 @@ const Panel = ({
     )}
     {children}
   </motion.div>
-);
-
-const HeaderStat = ({ label, value }: { label: string; value: string }) => (
-  <div className="text-xs uppercase tracking-[0.35em] text-white/50">
-    {label}
-    <div className="mt-2 text-xl md:text-2xl font-semibold tracking-wide text-white">{value}</div>
-  </div>
 );
 
 const RESEARCH_TRIGGERS = [
@@ -307,15 +216,12 @@ export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [showGreeting, setShowGreeting] = useState(true);
-  const [focusedPanel, setFocusedPanel] = useState<string | null>(null);
   const [aiBlocks, setAiBlocks] = useState<VisualizationBlock[] | null>(null);
   const [aiScene, setAiScene] = useState<SceneNode | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
-  const [selectedEmail, setSelectedEmail] = useState<{ id: string; from: string; subject: string; snippet: string; date: string; unread: boolean; important: boolean } | null>(null);
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
+  const [transcriptMessages, setTranscriptMessages] = useState<{ id: string; role: "user" | "assistant"; text: string; timestamp: number }[]>([]);
   const [appMode, setAppMode] = useState<AppMode>(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("whut_app_mode") as AppMode) || "chat";
@@ -361,7 +267,6 @@ export default function DashboardPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tts = useTTS();
-  const googleData = useGoogleData();
   const speechLoopRef = useRef(false); // tracks if we should auto-restart listening
 
   // Mode toggle handler
@@ -395,10 +300,6 @@ export default function DashboardPage() {
     const timer = setTimeout(() => setShowGreeting(false), 4200);
     return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    setFocusedPanel(null);
-  }, [activeView]);
 
   // Notifications are manual-only — user clicks the bell icon to open
 
@@ -688,10 +589,6 @@ export default function DashboardPage() {
     };
   }, [appMode, voice.state, voice.startListening, voice.stopListening]);
 
-  const handleFocus = (id: string) => {
-    setFocusedPanel((prev) => (prev === id ? null : id));
-  };
-
   // Compute orb visual state
   const orbState: OrbState = aiScene
     ? "scene-active"
@@ -707,19 +604,9 @@ export default function DashboardPage() {
   const closeView = () => { setActiveView(null); setAiBlocks(null); setAiScene(null); };
 
   return (
-    <div
-      className="h-full w-full overflow-hidden relative"
-      onClick={() => setFocusedPanel(null)}
-    >
+    <div className="h-full w-full overflow-hidden relative">
       {/* Orb — full-viewport canvas, handles its own positioning/transitions */}
       <AIOrb state={orbState} />
-
-      {/* Notification overlay for emails */}
-      <NotificationOverlay
-        items={emailsToNotifications(googleData.emails)}
-        visible={showNotifications}
-        onClose={() => setShowNotifications(false)}
-      />
 
       {/* Floating conversation transcript */}
       {/* Transcript removed — scene text-block IS the response */}
@@ -796,7 +683,7 @@ export default function DashboardPage() {
               </MobileCard>
             </MobileViewContainer>
 
-            <Panel id="help-commands" style={{ top: "28%", left: "50%", width: 480, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "help-commands"} isDimmed={!!focusedPanel && focusedPanel !== "help-commands"}>
+            <Panel id="help-commands" style={{ top: "28%", left: "50%", width: 480, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView}>
               <div className="text-xs uppercase tracking-[0.3em] text-white/50">Command List</div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-white/70">
                 {COMMANDS.map((cmd) => (
