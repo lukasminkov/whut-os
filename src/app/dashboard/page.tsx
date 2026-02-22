@@ -223,6 +223,48 @@ const MobileViewContainer = ({ children, onClose }: { children: ReactNode; onClo
   </motion.div>
 );
 
+/** Generate a descriptive summary of what a scene shows (for chat history context) */
+function describeScene(scene: SceneNode): string {
+  const parts: string[] = [];
+  function walk(node: SceneNode) {
+    if (node.type === "email-compose") {
+      const to = node.data?.to || "someone";
+      const subject = node.data?.subject || "an email";
+      parts.push(`I showed an email compose card to ${to} about "${subject}"`);
+    } else if (node.type === "email-list") {
+      parts.push("I showed your email inbox");
+    } else if (node.type === "calendar-events") {
+      parts.push("I showed your upcoming calendar events");
+    } else if (node.type === "file-list") {
+      parts.push("I showed your recent Drive files");
+    } else if (node.type === "stat-cards") {
+      const titles = (node.data?.stats || []).map((s: any) => s.title || s.label).filter(Boolean);
+      parts.push(`I showed stats: ${titles.join(", ") || "overview cards"}`);
+    } else if (node.type === "chart") {
+      parts.push(`I showed a ${node.data?.chartType || ""} chart${node.title ? ` of ${node.title}` : ""}`);
+    } else if (node.type === "card-grid") {
+      const count = node.data?.cards?.length || 0;
+      parts.push(`I showed ${count} cards${node.title ? ` for ${node.title}` : ""}`);
+    } else if (node.type === "table") {
+      parts.push(`I showed a table${node.title ? ` of ${node.title}` : ""}`);
+    } else if (node.type === "text-block" || node.type === "markdown") {
+      const text = node.data?.text || node.data?.content || "";
+      if (text.length > 0) parts.push(text.slice(0, 200));
+    } else if (node.type === "commerce-summary") {
+      parts.push("I showed a commerce summary");
+    } else if (node.type === "comparison") {
+      parts.push("I showed a comparison view");
+    } else if (node.type === "timeline") {
+      parts.push("I showed a timeline");
+    }
+    if (node.children) node.children.forEach(walk);
+  }
+  walk(scene);
+  return parts.join(". ") || "I showed a visualization.";
+}
+
+const MAX_HISTORY = 40; // 20 turns = 40 messages (user + assistant)
+
 let msgIdCounter = 0;
 // Smart scene merge: reuse same-type components so React doesn't remount them
 function mergeScenes(prev: SceneNode, next: SceneNode): SceneNode {
@@ -537,14 +579,17 @@ export default function DashboardPage() {
         }
       }
 
-      // Update chat history
+      // Update chat history (sliding window of last 20 turns)
       const hasAnyResponse = (result.blocks && result.blocks.length > 0) || result.scene?.layout;
       if (hasAnyResponse) {
-        setChatHistory(prev => [
-          ...prev,
-          { role: "user", content: trimmed },
-          { role: "assistant", content: summaryText },
-        ]);
+        setChatHistory(prev => {
+          const updated = [
+            ...prev,
+            { role: "user", content: trimmed },
+            { role: "assistant", content: summaryText },
+          ];
+          return updated.slice(-MAX_HISTORY);
+        });
       } else {
         setTranscriptMessages(prev => [...prev, {
           id: nextMsgId(),
@@ -680,495 +725,6 @@ export default function DashboardPage() {
       {/* Transcript removed — scene text-block IS the response */}
 
       <AnimatePresence mode="wait">
-        {/* ========== REVENUE ========== */}
-        {activeView === "revenue" && (
-          <motion.div key="revenue" className="absolute inset-0">
-            {/* Mobile */}
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Total Revenue" value="$142,382" />
-                <div className="mt-3 flex items-center gap-2 text-xs text-emerald-300">
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-300" />
-                  +12.4% vs last month
-                </div>
-              </MobileCard>
-              <MobileCard>
-                <div className="space-y-3 text-sm">
-                  {[
-                    { name: "Shopify", value: "$68K" },
-                    { name: "Amazon", value: "$45K" },
-                    { name: "TikTok", value: "$29K" },
-                  ].map((item) => (
-                    <div key={item.name} className="flex items-center justify-between">
-                      <span className="text-white/70">{item.name}</span>
-                      <span className="font-semibold text-white">{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </MobileCard>
-              <MobileCard className="glass-card-bright">
-                <div className="mb-3 text-xs uppercase tracking-[0.3em] text-white/40">Revenue (Last 30 Days)</div>
-                <div className="w-full h-[220px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={revenueData}>
-                      <defs>
-                        <linearGradient id="m-shopify" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#00d4aa" stopOpacity={0.6} />
-                          <stop offset="95%" stopColor="#00d4aa" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="m-amazon" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.5} />
-                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="m-tiktok" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f472b6" stopOpacity={0.4} />
-                          <stop offset="95%" stopColor="#f472b6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                      <XAxis dataKey="day" tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 9 }} />
-                      <YAxis tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 9 }} width={40} />
-                      <Tooltip contentStyle={{ background: "rgba(6,6,15,0.85)", border: "1px solid rgba(255,255,255,0.1)", fontSize: 11 }} />
-                      <Area type="monotone" dataKey="shopify" stackId="1" stroke="#00d4aa" fill="url(#m-shopify)" />
-                      <Area type="monotone" dataKey="amazon" stackId="1" stroke="#6366f1" fill="url(#m-amazon)" />
-                      <Area type="monotone" dataKey="tiktok" stackId="1" stroke="#f472b6" fill="url(#m-tiktok)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </MobileCard>
-              <MobileCard>
-                <div className="text-sm text-white/70">Top product</div>
-                <div className="mt-1 text-base font-semibold text-white">Glow Serum Kit — $18.4K this month</div>
-              </MobileCard>
-            </MobileViewContainer>
-
-            {/* Desktop panels */}
-            <Panel id="revenue-summary" style={{ top: "10%", left: "14%", width: 280 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "revenue-summary"} isDimmed={!!focusedPanel && focusedPanel !== "revenue-summary"}>
-              <HeaderStat label="Total Revenue" value="$142,382" />
-              <div className="mt-3 flex items-center gap-2 text-xs text-emerald-300">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-300" />
-                +12.4% vs last month
-              </div>
-            </Panel>
-            <Panel id="revenue-channels" style={{ top: "12%", right: "14%", width: 240 }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "revenue-channels"} isDimmed={!!focusedPanel && focusedPanel !== "revenue-channels"}>
-              <div className="space-y-3 text-sm">
-                {[{ name: "Shopify", value: "$68K" }, { name: "Amazon", value: "$45K" }, { name: "TikTok", value: "$29K" }].map((item) => (
-                  <div key={item.name} className="flex items-center justify-between">
-                    <span className="text-white/70">{item.name}</span>
-                    <span className="font-semibold text-white">{item.value}</span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel id="revenue-chart" style={{ top: "22%", left: "50%", width: 720, height: 360, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "revenue-chart"} isDimmed={!!focusedPanel && focusedPanel !== "revenue-chart"}>
-              <div className="mb-4 text-xs uppercase tracking-[0.3em] text-white/40">Revenue (Last 30 Days)</div>
-              <div style={{ width: "100%", height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={revenueData}>
-                    <defs>
-                      <linearGradient id="shopify" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00d4aa" stopOpacity={0.6} />
-                        <stop offset="95%" stopColor="#00d4aa" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="amazon" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.5} />
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="tiktok" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f472b6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#f472b6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                    <XAxis dataKey="day" tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
-                    <YAxis tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: "rgba(6,6,15,0.85)", border: "1px solid rgba(255,255,255,0.1)" }} />
-                    <Area type="monotone" dataKey="shopify" stackId="1" stroke="#00d4aa" fill="url(#shopify)" />
-                    <Area type="monotone" dataKey="amazon" stackId="1" stroke="#6366f1" fill="url(#amazon)" />
-                    <Area type="monotone" dataKey="tiktok" stackId="1" stroke="#f472b6" fill="url(#tiktok)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-            <Panel id="revenue-top-product" style={{ bottom: "12%", left: "50%", width: 420, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "revenue-top-product"} isDimmed={!!focusedPanel && focusedPanel !== "revenue-top-product"}>
-              <div className="text-sm text-white/70">Top product</div>
-              <div className="mt-2 text-lg font-semibold text-white">Glow Serum Kit — $18.4K this month</div>
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== CAMPAIGNS ========== */}
-        {activeView === "campaigns" && (
-          <motion.div key="campaigns" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Active Campaigns" value="5" />
-              </MobileCard>
-              {[
-                { name: "Summer Drop", roi: "3.4x", budget: 82 },
-                { name: "Glow Serum", roi: "2.6x", budget: 68 },
-                { name: "Creator Boost", roi: "2.1x", budget: 54 },
-                { name: "Holiday Tease", roi: "1.8x", budget: 46 },
-              ].map((campaign) => (
-                <MobileCard key={campaign.name}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-semibold text-white">{campaign.name}</span>
-                    <span className="text-emerald-300">{campaign.roi}</span>
-                  </div>
-                  <div className="mt-3 h-2 rounded-full bg-white/10">
-                    <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" style={{ width: `${campaign.budget}%` }} />
-                  </div>
-                  <div className="mt-2 text-xs text-white/60">Budget utilized</div>
-                </MobileCard>
-              ))}
-              <MobileCard>
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50">Best performer</div>
-                <div className="mt-2 text-lg font-semibold text-white">Summer Drop — 3.4x ROI</div>
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="campaigns-summary" style={{ top: "10%", left: "50%", width: 280, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "campaigns-summary"} isDimmed={!!focusedPanel && focusedPanel !== "campaigns-summary"}>
-              <HeaderStat label="Active Campaigns" value="5" />
-            </Panel>
-            <Panel id="campaigns-grid" style={{ top: "20%", left: "50%", width: 720, height: 360, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "campaigns-grid"} isDimmed={!!focusedPanel && focusedPanel !== "campaigns-grid"}>
-              <div className="grid h-full grid-cols-2 gap-4">
-                {[
-                  { name: "Summer Drop", roi: "3.4x", budget: 82 },
-                  { name: "Glow Serum", roi: "2.6x", budget: 68 },
-                  { name: "Creator Boost", roi: "2.1x", budget: 54 },
-                  { name: "Holiday Tease", roi: "1.8x", budget: 46 },
-                ].map((campaign) => (
-                  <div key={campaign.name} className="glass-card p-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-white">{campaign.name}</span>
-                      <span className="text-emerald-300">{campaign.roi}</span>
-                    </div>
-                    <div className="mt-3 h-2 rounded-full bg-white/10">
-                      <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" style={{ width: `${campaign.budget}%` }} />
-                    </div>
-                    <div className="mt-2 text-xs text-white/60">Budget utilized</div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel id="campaigns-best" style={{ bottom: "14%", left: "12%", width: 320 }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "campaigns-best"} isDimmed={!!focusedPanel && focusedPanel !== "campaigns-best"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Best performer</div>
-              <div className="mt-3 text-lg font-semibold text-white">Summer Drop — 3.4x ROI</div>
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== CREATORS ========== */}
-        {activeView === "creators" && (
-          <motion.div key="creators" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Total Creators" value="4,073" />
-              </MobileCard>
-              <div className="grid grid-cols-2 gap-3">
-                {["Mila Santos", "Jae Parker", "Kira Vale", "Nico Reed", "Sasha Kim", "Aria Bloom"].map((name, idx) => (
-                  <MobileCard key={name}>
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-400/70 to-indigo-400/70 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-white truncate">{name}</div>
-                        <div className="text-[10px] text-white/50">TikTok</div>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-white/60">{(idx + 1) * 12}K engagements</div>
-                  </MobileCard>
-                ))}
-              </div>
-              <MobileCard className="glass-card-bright">
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50">Top Creator</div>
-                <div className="mt-2 text-lg font-semibold text-white">Juno Lee</div>
-                <div className="text-xs text-emerald-300">+18% growth</div>
-                <div className="w-full h-[120px] mt-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={creatorSpotlight}>
-                      <Line type="monotone" dataKey="value" stroke="#00d4aa" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="creators-summary" style={{ top: "10%", left: "50%", width: 300, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "creators-summary"} isDimmed={!!focusedPanel && focusedPanel !== "creators-summary"}>
-              <HeaderStat label="Total Creators" value="4,073" />
-            </Panel>
-            <Panel id="creators-grid" style={{ top: "20%", left: "50%", width: 700, height: 360, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "creators-grid"} isDimmed={!!focusedPanel && focusedPanel !== "creators-grid"}>
-              <div className="grid h-full grid-cols-3 gap-4">
-                {["Mila Santos", "Jae Parker", "Kira Vale", "Nico Reed", "Sasha Kim", "Aria Bloom"].map((name, idx) => (
-                  <div key={name} className="glass-card flex flex-col justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-400/70 to-indigo-400/70" />
-                      <div>
-                        <div className="text-sm font-semibold text-white">{name}</div>
-                        <div className="text-xs text-white/50">TikTok</div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-white/60">{(idx + 1) * 12}K engagements</div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel id="creators-top" style={{ top: "24%", right: "12%", width: 240, height: 320 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "creators-top"} isDimmed={!!focusedPanel && focusedPanel !== "creators-top"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Top Creator</div>
-              <div className="mt-2 text-lg font-semibold text-white">Juno Lee</div>
-              <div className="text-xs text-emerald-300">+18% growth</div>
-              <div className="mt-4" style={{ width: 200, height: 160 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={creatorSpotlight}>
-                    <Line type="monotone" dataKey="value" stroke="#00d4aa" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== EMAILS (Real Gmail) ========== */}
-        {activeView === "emails" && (
-          <motion.div key="emails" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Unread" value={`${googleData.emails.filter(e => e.unread).length} unread`} />
-                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations to see real emails</div>}
-              </MobileCard>
-              <MobileCard>
-                <EmailsList emails={googleData.emails} onSelect={setSelectedEmail} />
-              </MobileCard>
-              {selectedEmail && (
-                <MobileCard className="glass-card-bright">
-                  <div className="text-xs uppercase tracking-[0.3em] text-white/50">Selected</div>
-                  <div className="mt-2 text-base font-semibold text-white">{selectedEmail.subject}</div>
-                  <div className="mt-1 text-xs text-white/60">From {selectedEmail.from}</div>
-                  <p className="mt-3 text-sm text-white/70">{selectedEmail.snippet}</p>
-                </MobileCard>
-              )}
-            </MobileViewContainer>
-
-            <Panel id="emails-summary" style={{ top: "10%", left: "50%", width: 320, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-summary"} isDimmed={!!focusedPanel && focusedPanel !== "emails-summary"}>
-              <HeaderStat label="Gmail" value={googleData.isConnected ? `${googleData.emails.filter(e => e.unread).length} unread` : "Not connected"} />
-              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
-              {googleData.loading.emails && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
-            </Panel>
-            <Panel id="emails-list" style={{ top: "20%", left: "12%", width: 340, height: 400 }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-list"} isDimmed={!!focusedPanel && focusedPanel !== "emails-list"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Inbox</div>
-              <EmailsList emails={googleData.emails} onSelect={setSelectedEmail} />
-            </Panel>
-            <Panel id="emails-selected" style={{ top: "20%", right: "12%", width: 420, height: 400 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-selected"} isDimmed={!!focusedPanel && focusedPanel !== "emails-selected"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Selected</div>
-              {selectedEmail ? (
-                <>
-                  <div className="mt-3 text-lg font-semibold text-white">{selectedEmail.subject}</div>
-                  <div className="mt-2 text-xs text-white/60">From {selectedEmail.from}</div>
-                  <p className="mt-4 text-sm text-white/70">{selectedEmail.snippet}</p>
-                </>
-              ) : (
-                <div className="mt-4 text-sm text-white/30">Select an email to preview</div>
-              )}
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== CALENDAR (Google Calendar) ========== */}
-        {activeView === "calendar" && (
-          <motion.div key="calendar" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Calendar" value={googleData.isConnected ? `${googleData.calendarEvents.length} upcoming` : "Not connected"} />
-                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
-              </MobileCard>
-              <MobileCard>
-                <CalendarEventsList events={googleData.calendarEvents} />
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="calendar-header" style={{ top: "10%", left: "50%", width: 360, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "calendar-header"} isDimmed={!!focusedPanel && focusedPanel !== "calendar-header"}>
-              <HeaderStat label="Google Calendar" value={googleData.isConnected ? `${googleData.calendarEvents.length} upcoming` : "Not connected"} />
-              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
-              {googleData.loading.calendar && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
-            </Panel>
-            <Panel id="calendar-events" style={{ top: "22%", left: "50%", width: 400, height: 420, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "calendar-events"} isDimmed={!!focusedPanel && focusedPanel !== "calendar-events"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Upcoming Events</div>
-              <CalendarEventsList events={googleData.calendarEvents} />
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== DRIVE (Google Drive) ========== */}
-        {activeView === "drive" && (
-          <motion.div key="drive" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <HeaderStat label="Drive" value={googleData.isConnected ? `${googleData.driveFiles.length} recent files` : "Not connected"} />
-                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
-              </MobileCard>
-              <MobileCard>
-                <DriveFilesList files={googleData.driveFiles} />
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="drive-header" style={{ top: "10%", left: "50%", width: 360, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "drive-header"} isDimmed={!!focusedPanel && focusedPanel !== "drive-header"}>
-              <HeaderStat label="Google Drive" value={googleData.isConnected ? `${googleData.driveFiles.length} recent files` : "Not connected"} />
-              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
-              {googleData.loading.drive && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
-            </Panel>
-            <Panel id="drive-files" style={{ top: "22%", left: "50%", width: 420, height: 420, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "drive-files"} isDimmed={!!focusedPanel && focusedPanel !== "drive-files"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Recent Files</div>
-              <DriveFilesList files={googleData.driveFiles} />
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== FINANCE ========== */}
-        {activeView === "finance" && (
-          <motion.div key="finance" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <MobileCard className="glass-card-bright">
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: "Revenue", value: "$142K", color: "text-white" },
-                    { label: "Expenses", value: "$94K", color: "text-white" },
-                    { label: "Profit", value: "$48K", color: "text-emerald-300" },
-                  ].map((s) => (
-                    <div key={s.label}>
-                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">{s.label}</div>
-                      <div className={`text-lg font-semibold ${s.color}`}>{s.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </MobileCard>
-              <MobileCard>
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Expense Breakdown</div>
-                <div className="w-full h-[220px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={financeData} dataKey="value" innerRadius={60} outerRadius={90} fill="#00d4aa" stroke="rgba(255,255,255,0.1)">
-                        {financeData.map((entry, index) => (
-                          <Cell key={`m-slice-${entry.name}`} fill={["#00d4aa", "#6366f1", "#f472b6", "#38bdf8", "#fbbf24"][index]} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: "rgba(6,6,15,0.85)", border: "1px solid rgba(255,255,255,0.1)", fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </MobileCard>
-              <MobileCard className="glass-card-bright">
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Monthly P&L</div>
-                <div className="space-y-2 text-xs">
-                  {["Sep", "Oct", "Nov", "Dec", "Jan", "Feb"].map((month, idx) => (
-                    <div key={month} className="flex items-center justify-between text-white/70">
-                      <span>{month}</span>
-                      <span className="text-white">${42 + idx * 4}K</span>
-                      <span className="text-emerald-300">+{8 + idx}%</span>
-                    </div>
-                  ))}
-                </div>
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="finance-summary" style={{ top: "22%", left: "12%", width: 240, height: 300 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "finance-summary"} isDimmed={!!focusedPanel && focusedPanel !== "finance-summary"}>
-              <div className="space-y-4">
-                <div><div className="text-xs uppercase tracking-[0.3em] text-white/50">Revenue</div><div className="text-xl font-semibold text-white">$142K</div></div>
-                <div><div className="text-xs uppercase tracking-[0.3em] text-white/50">Expenses</div><div className="text-xl font-semibold text-white">$94K</div></div>
-                <div><div className="text-xs uppercase tracking-[0.3em] text-white/50">Profit</div><div className="text-xl font-semibold text-emerald-300">$48K</div></div>
-              </div>
-            </Panel>
-            <Panel id="finance-breakdown" style={{ top: "20%", left: "50%", width: 380, height: 360, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "finance-breakdown"} isDimmed={!!focusedPanel && focusedPanel !== "finance-breakdown"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Expense Breakdown</div>
-              <div className="mt-4" style={{ width: "100%", height: 260 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={financeData} dataKey="value" innerRadius={70} outerRadius={110} fill="#00d4aa" stroke="rgba(255,255,255,0.1)">
-                      {financeData.map((entry, index) => (
-                        <Cell key={`slice-${entry.name}`} fill={["#00d4aa", "#6366f1", "#f472b6", "#38bdf8", "#fbbf24"][index]} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ background: "rgba(6,6,15,0.85)", border: "1px solid rgba(255,255,255,0.1)" }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-            <Panel id="finance-pl" style={{ top: "22%", right: "12%", width: 260, height: 300 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "finance-pl"} isDimmed={!!focusedPanel && focusedPanel !== "finance-pl"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Monthly P&L</div>
-              <div className="mt-4 space-y-2 text-xs">
-                {["Sep", "Oct", "Nov", "Dec", "Jan", "Feb"].map((month, idx) => (
-                  <div key={month} className="flex items-center justify-between text-white/70">
-                    <span>{month}</span>
-                    <span className="text-white">${42 + idx * 4}K</span>
-                    <span className="text-emerald-300">+{8 + idx}%</span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </motion.div>
-        )}
-
-        {/* ========== BRIEFING ========== */}
-        {activeView === "briefing" && (
-          <motion.div key="briefing" className="absolute inset-0">
-            <MobileViewContainer onClose={closeView}>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Revenue", value: "$142K" },
-                  { label: "Campaigns", value: "5" },
-                  { label: "Creators", value: "4,073" },
-                  { label: "Messages", value: "12" },
-                ].map((s) => (
-                  <MobileCard key={s.label} className="glass-card-bright">
-                    <HeaderStat label={s.label} value={s.value} />
-                  </MobileCard>
-                ))}
-              </div>
-              <MobileCard>
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Morning Briefing</div>
-                <div className="w-full h-[100px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sparklineData}>
-                      <Line type="monotone" dataKey="value" stroke="#00d4aa" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <ul className="mt-4 space-y-2 text-sm text-white/70">
-                  <li>• Approve 3 creator contracts waiting in pipeline</li>
-                  <li>• Replenish Glow Serum inventory within 48h</li>
-                  <li>• Review campaign creative refresh for Summer Drop</li>
-                </ul>
-              </MobileCard>
-            </MobileViewContainer>
-
-            <Panel id="briefing-revenue" style={{ top: "10%", left: "12%", width: 220 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "briefing-revenue"} isDimmed={!!focusedPanel && focusedPanel !== "briefing-revenue"}>
-              <HeaderStat label="Revenue" value="$142K" />
-            </Panel>
-            <Panel id="briefing-campaigns" style={{ top: "10%", right: "12%", width: 220 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "briefing-campaigns"} isDimmed={!!focusedPanel && focusedPanel !== "briefing-campaigns"}>
-              <HeaderStat label="Campaigns" value="5" />
-            </Panel>
-            <Panel id="briefing-creators" style={{ bottom: "14%", left: "12%", width: 220 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "briefing-creators"} isDimmed={!!focusedPanel && focusedPanel !== "briefing-creators"}>
-              <HeaderStat label="Creators" value="4,073" />
-            </Panel>
-            <Panel id="briefing-messages" style={{ bottom: "14%", right: "12%", width: 220 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "briefing-messages"} isDimmed={!!focusedPanel && focusedPanel !== "briefing-messages"}>
-              <HeaderStat label="Messages" value="12" />
-            </Panel>
-            <Panel id="briefing-main" style={{ top: "26%", left: "50%", width: 520, height: 320, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "briefing-main"} isDimmed={!!focusedPanel && focusedPanel !== "briefing-main"}>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Morning Briefing</div>
-              <div className="mt-4" style={{ width: "100%", height: 120 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={sparklineData}>
-                    <Line type="monotone" dataKey="value" stroke="#00d4aa" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <ul className="mt-4 space-y-2 text-sm text-white/70">
-                <li>• Approve 3 creator contracts waiting in pipeline</li>
-                <li>• Replenish Glow Serum inventory within 48h</li>
-                <li>• Review campaign creative refresh for Summer Drop</li>
-              </ul>
-            </Panel>
-          </motion.div>
-        )}
-
         {/* ========== V2 SCENE GRAPH RESPONSE ========== */}
         {aiScene && (
           <motion.div

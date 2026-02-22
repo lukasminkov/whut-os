@@ -11,6 +11,7 @@ import {
   Bell,
   Settings,
   LogOut,
+  BarChart2,
 } from "lucide-react";
 
 const MENU_ITEMS = [
@@ -19,6 +20,7 @@ const MENU_ITEMS = [
 ];
 
 const BOTTOM_NAV = [
+  { href: "/dashboard/usage", label: "Usage", icon: BarChart2 },
   { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
 ];
