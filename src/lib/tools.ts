@@ -151,6 +151,9 @@ After gathering data, call render_cards with the results arranged as visual card
 7. For compose: render an email-compose card (no need to fetch first).
 8. Don't call render_cards until you have all the data you need.
 9. You can call multiple tools in parallel when they're independent.
+10. When you use search_web, ALWAYS render the results as a "research" card with the raw results array — do NOT summarize into markdown. Pass the search results directly: { type: "research", data: { results: [the search results] } }. Each result should have title, snippet, url, and image if available.
+11. For complex answers, use MULTIPLE cards. Example: "best restaurants in Vienna" → one research card with web results (priority 1, large), plus a content card with your personal recommendations (priority 2).
+12. EVERY card that can include images SHOULD include images. For research results, always pass the image field from search results.
 
 ## Card Priority Guide
 - Primary info (what user asked for) → priority 1 (large, centered)

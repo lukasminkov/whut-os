@@ -50,15 +50,20 @@ function DraggableCard({
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
 
+  const dragHandleRef = useRef<HTMLDivElement>(null);
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // Capture on the handle div, not the target (which could be a child)
+    dragHandleRef.current?.setPointerCapture(e.pointerId);
   }, [offset]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
+    e.preventDefault();
     setOffset({
       x: dragStart.current.ox + e.clientX - dragStart.current.x,
       y: dragStart.current.oy + e.clientY - dragStart.current.y,
@@ -97,7 +102,8 @@ function DraggableCard({
       >
         {/* Title bar — drag handle */}
         <div
-          className="flex items-center gap-2 px-4 py-2.5 cursor-grab active:cursor-grabbing select-none shrink-0"
+          ref={dragHandleRef}
+          className="flex items-center gap-2 px-4 py-2.5 cursor-grab active:cursor-grabbing select-none shrink-0 touch-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

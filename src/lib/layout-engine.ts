@@ -19,10 +19,10 @@ export function layoutCards(cards: Card[]): Card[] {
   const positioned: Card[] = [];
 
   if (sorted.length === 1) {
-    // Single card: centered
+    // Single card: centered in content area (offset for sidebar)
     positioned.push({
       ...sorted[0],
-      position: { x: 50, y: 42 },
+      position: { x: 45, y: 40 },
       size: sorted[0].size || 'large',
     });
   } else if (sorted.length === 2) {
