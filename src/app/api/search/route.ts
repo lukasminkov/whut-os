@@ -8,8 +8,8 @@ export async function GET(req: NextRequest) {
 
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
 
+  // Try Brave first
   if (braveKey) {
-    // Use Brave Search API
     try {
       const res = await fetch(
         `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8`,
@@ -23,40 +23,50 @@ export async function GET(req: NextRequest) {
           url: r.url,
           image: r.thumbnail?.src || null,
         }));
-        return Response.json({ results });
+        return Response.json({ results, query });
       }
     } catch {}
   }
 
-  // Fallback: DuckDuckGo instant answer API (no key needed, limited)
+  // Fallback: DuckDuckGo HTML scrape (works reliably, no key needed)
   try {
     const res = await fetch(
-      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1`
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+      }
     );
     if (res.ok) {
-      const data = await res.json();
+      const html = await res.text();
       const results: any[] = [];
-      if (data.Abstract) {
-        results.push({
-          title: data.Heading || query,
-          snippet: data.Abstract,
-          url: data.AbstractURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
-          image: data.Image || null,
-        });
-      }
-      for (const topic of data.RelatedTopics || []) {
-        if (topic.Text && results.length < 8) {
-          results.push({
-            title: topic.Text.split(" - ")[0] || topic.Text.slice(0, 60),
-            snippet: topic.Text,
-            url: topic.FirstURL || "#",
-            image: topic.Icon?.URL || null,
-          });
+
+      // Parse results from DDG HTML
+      const resultBlocks = html.split('class="result__body"');
+      for (let i = 1; i < resultBlocks.length && results.length < 8; i++) {
+        const block = resultBlocks[i];
+
+        // Extract title
+        const titleMatch = block.match(/class="result__a"[^>]*>([^<]+)</);
+        const title = titleMatch?.[1]?.trim();
+
+        // Extract URL from uddg parameter
+        const urlMatch = block.match(/uddg=([^&"]+)/);
+        let url = urlMatch?.[1] ? decodeURIComponent(urlMatch[1]) : null;
+
+        // Extract snippet
+        const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+        let snippet = snippetMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || "";
+
+        if (title && url && !url.includes("duckduckgo.com")) {
+          results.push({ title, snippet, url, image: null });
         }
       }
-      return Response.json({ results });
+
+      return Response.json({ results, query });
     }
   } catch {}
 
-  return Response.json({ results: [] });
+  return Response.json({ results: [], query });
 }
