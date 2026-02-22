@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import VisualizationEngine from "@/components/VisualizationEngine";
 import type { VisualizationBlock } from "@/lib/visualization-tools";
 import AIOrb from "@/components/AIOrb";
+import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import {
   Area,
   AreaChart,
@@ -29,6 +30,8 @@ const COMMANDS = [
   "creators",
   "emails",
   "inbox",
+  "calendar",
+  "drive",
   "finance",
   "profit",
   "briefing",
@@ -42,6 +45,8 @@ type ViewKey =
   | "campaigns"
   | "creators"
   | "emails"
+  | "calendar"
+  | "drive"
   | "finance"
   | "briefing"
   | "help"
@@ -217,6 +222,8 @@ export default function DashboardPage() {
   const [aiBlocks, setAiBlocks] = useState<VisualizationBlock[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<{ id: string; from: string; subject: string; snippet: string; date: string; unread: boolean; important: boolean } | null>(null);
+  const googleData = useGoogleData();
 
   useEffect(() => {
     const timer = setTimeout(() => setShowGreeting(false), 4200);
@@ -239,7 +246,9 @@ export default function DashboardPage() {
     if (/revenue|sales|earnings/.test(normalized)) return "revenue";
     if (/campaign|ads|adset/.test(normalized)) return "campaigns";
     if (/creator|influencer/.test(normalized)) return "creators";
-    if (/email|inbox|messages/.test(normalized)) return "emails";
+    if (/email|inbox|messages|gmail/.test(normalized)) return "emails";
+    if (/calendar|events|schedule|meetings/.test(normalized)) return "calendar";
+    if (/drive|files|documents|docs/.test(normalized)) return "drive";
     if (/finance|profit|expenses|p&l/.test(normalized)) return "finance";
     if (/brief|briefing|morning|summary|overview/.test(normalized)) return "briefing";
     if (/help|commands/.test(normalized)) return "help";
@@ -610,67 +619,97 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ========== EMAILS ========== */}
+        {/* ========== EMAILS (Real Gmail) ========== */}
         {activeView === "emails" && (
           <motion.div key="emails" className="absolute inset-0">
             <MobileViewContainer onClose={closeView}>
               <MobileCard className="glass-card-bright">
-                <HeaderStat label="Unread" value="12 — 3 Urgent" />
+                <HeaderStat label="Unread" value={`${googleData.emails.filter(e => e.unread).length} unread`} />
+                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations to see real emails</div>}
               </MobileCard>
-              {[
-                { sender: "Kora @ Shopify", subject: "Inventory alert", time: "5m", urgent: true },
-                { sender: "Campaign Ops", subject: "Creative approvals", time: "32m", urgent: false },
-                { sender: "Finance", subject: "Payout schedule", time: "1h", urgent: false },
-                { sender: "Logistics", subject: "Fulfillment update", time: "3h", urgent: false },
-              ].map((mail) => (
-                <MobileCard key={mail.subject}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-semibold text-white">{mail.sender}</span>
-                    <span className="text-xs text-white/50">{mail.time}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-white/60">{mail.subject}</div>
-                  <span className={`mt-2 inline-block h-2 w-2 rounded-full ${mail.urgent ? "bg-rose-400" : "bg-emerald-400"}`} />
+              <MobileCard>
+                <EmailsList emails={googleData.emails} onSelect={setSelectedEmail} />
+              </MobileCard>
+              {selectedEmail && (
+                <MobileCard className="glass-card-bright">
+                  <div className="text-xs uppercase tracking-[0.3em] text-white/50">Selected</div>
+                  <div className="mt-2 text-base font-semibold text-white">{selectedEmail.subject}</div>
+                  <div className="mt-1 text-xs text-white/60">From {selectedEmail.from}</div>
+                  <p className="mt-3 text-sm text-white/70">{selectedEmail.snippet}</p>
                 </MobileCard>
-              ))}
-              <MobileCard className="glass-card-bright">
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50">Selected</div>
-                <div className="mt-2 text-base font-semibold text-white">Inventory alert</div>
-                <div className="mt-1 text-xs text-white/60">From Kora @ Shopify</div>
-                <p className="mt-3 text-sm text-white/70">
-                  We've detected a spike in demand for Glow Serum Kit. Inventory levels will hit the reorder threshold in 48 hours. Would you like to auto-replenish 1,200 units?
-                </p>
-              </MobileCard>
+              )}
             </MobileViewContainer>
 
             <Panel id="emails-summary" style={{ top: "10%", left: "50%", width: 320, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-summary"} isDimmed={!!focusedPanel && focusedPanel !== "emails-summary"}>
-              <HeaderStat label="Unread" value="12 — 3 Urgent" />
+              <HeaderStat label="Gmail" value={googleData.isConnected ? `${googleData.emails.filter(e => e.unread).length} unread` : "Not connected"} />
+              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
+              {googleData.loading.emails && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
             </Panel>
-            <Panel id="emails-list" style={{ top: "20%", left: "12%", width: 320, height: 360 }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-list"} isDimmed={!!focusedPanel && focusedPanel !== "emails-list"}>
-              <div className="space-y-3">
-                {[
-                  { sender: "Kora @ Shopify", subject: "Inventory alert", time: "5m" },
-                  { sender: "Campaign Ops", subject: "Creative approvals", time: "32m" },
-                  { sender: "Finance", subject: "Payout schedule", time: "1h" },
-                  { sender: "Logistics", subject: "Fulfillment update", time: "3h" },
-                ].map((mail, idx) => (
-                  <div key={mail.subject} className="glass-card p-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-white">{mail.sender}</span>
-                      <span className="text-xs text-white/50">{mail.time}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-white/60">{mail.subject}</div>
-                    <span className={`mt-2 inline-block h-2 w-2 rounded-full ${idx === 0 ? "bg-rose-400" : "bg-emerald-400"}`} />
-                  </div>
-                ))}
-              </div>
+            <Panel id="emails-list" style={{ top: "20%", left: "12%", width: 340, height: 400 }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-list"} isDimmed={!!focusedPanel && focusedPanel !== "emails-list"}>
+              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Inbox</div>
+              <EmailsList emails={googleData.emails} onSelect={setSelectedEmail} />
             </Panel>
-            <Panel id="emails-selected" style={{ top: "20%", right: "12%", width: 420, height: 360 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-selected"} isDimmed={!!focusedPanel && focusedPanel !== "emails-selected"}>
+            <Panel id="emails-selected" style={{ top: "20%", right: "12%", width: 420, height: 400 }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "emails-selected"} isDimmed={!!focusedPanel && focusedPanel !== "emails-selected"}>
               <div className="text-xs uppercase tracking-[0.3em] text-white/50">Selected</div>
-              <div className="mt-3 text-lg font-semibold text-white">Inventory alert</div>
-              <div className="mt-2 text-xs text-white/60">From Kora @ Shopify</div>
-              <p className="mt-4 text-sm text-white/70">
-                We've detected a spike in demand for Glow Serum Kit. Inventory levels will hit the reorder threshold in 48 hours. Would you like to auto-replenish 1,200 units?
-              </p>
+              {selectedEmail ? (
+                <>
+                  <div className="mt-3 text-lg font-semibold text-white">{selectedEmail.subject}</div>
+                  <div className="mt-2 text-xs text-white/60">From {selectedEmail.from}</div>
+                  <p className="mt-4 text-sm text-white/70">{selectedEmail.snippet}</p>
+                </>
+              ) : (
+                <div className="mt-4 text-sm text-white/30">Select an email to preview</div>
+              )}
+            </Panel>
+          </motion.div>
+        )}
+
+        {/* ========== CALENDAR (Google Calendar) ========== */}
+        {activeView === "calendar" && (
+          <motion.div key="calendar" className="absolute inset-0">
+            <MobileViewContainer onClose={closeView}>
+              <MobileCard className="glass-card-bright">
+                <HeaderStat label="Calendar" value={googleData.isConnected ? `${googleData.calendarEvents.length} upcoming` : "Not connected"} />
+                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
+              </MobileCard>
+              <MobileCard>
+                <CalendarEventsList events={googleData.calendarEvents} />
+              </MobileCard>
+            </MobileViewContainer>
+
+            <Panel id="calendar-header" style={{ top: "10%", left: "50%", width: 360, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "calendar-header"} isDimmed={!!focusedPanel && focusedPanel !== "calendar-header"}>
+              <HeaderStat label="Google Calendar" value={googleData.isConnected ? `${googleData.calendarEvents.length} upcoming` : "Not connected"} />
+              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
+              {googleData.loading.calendar && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
+            </Panel>
+            <Panel id="calendar-events" style={{ top: "22%", left: "50%", width: 400, height: 420, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "calendar-events"} isDimmed={!!focusedPanel && focusedPanel !== "calendar-events"}>
+              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Upcoming Events</div>
+              <CalendarEventsList events={googleData.calendarEvents} />
+            </Panel>
+          </motion.div>
+        )}
+
+        {/* ========== DRIVE (Google Drive) ========== */}
+        {activeView === "drive" && (
+          <motion.div key="drive" className="absolute inset-0">
+            <MobileViewContainer onClose={closeView}>
+              <MobileCard className="glass-card-bright">
+                <HeaderStat label="Drive" value={googleData.isConnected ? `${googleData.driveFiles.length} recent files` : "Not connected"} />
+                {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
+              </MobileCard>
+              <MobileCard>
+                <DriveFilesList files={googleData.driveFiles} />
+              </MobileCard>
+            </MobileViewContainer>
+
+            <Panel id="drive-header" style={{ top: "10%", left: "50%", width: 360, transform: "translateX(-50%)" }} className="glass-card-bright" onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "drive-header"} isDimmed={!!focusedPanel && focusedPanel !== "drive-header"}>
+              <HeaderStat label="Google Drive" value={googleData.isConnected ? `${googleData.driveFiles.length} recent files` : "Not connected"} />
+              {!googleData.isConnected && <div className="mt-2 text-xs text-amber-400/80">Connect Google in Integrations</div>}
+              {googleData.loading.drive && <div className="mt-2 text-xs text-white/30 animate-pulse">Loading...</div>}
+            </Panel>
+            <Panel id="drive-files" style={{ top: "22%", left: "50%", width: 420, height: 420, transform: "translateX(-50%)" }} onClose={closeView} onFocus={handleFocus} isFocused={focusedPanel === "drive-files"} isDimmed={!!focusedPanel && focusedPanel !== "drive-files"}>
+              <div className="text-xs uppercase tracking-[0.3em] text-white/50 mb-3">Recent Files</div>
+              <DriveFilesList files={googleData.driveFiles} />
             </Panel>
           </motion.div>
         )}

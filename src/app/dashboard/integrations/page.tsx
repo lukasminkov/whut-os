@@ -82,6 +82,19 @@ const NotionLogo = () => (
   </svg>
 );
 
+const GoogleCalendarLogo = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6">
+    <rect x="3" y="4" width="18" height="18" rx="2" fill="#4285F4" opacity="0.9"/>
+    <rect x="3" y="4" width="18" height="5" rx="2" fill="#1967D2"/>
+    <rect x="7" y="11" width="3" height="3" rx="0.5" fill="white"/>
+    <rect x="12" y="11" width="3" height="3" rx="0.5" fill="white"/>
+    <rect x="7" y="16" width="3" height="3" rx="0.5" fill="white"/>
+    <rect x="12" y="16" width="3" height="3" rx="0.5" fill="white" opacity="0.6"/>
+    <rect x="8" y="2" width="2" height="4" rx="1" fill="#1967D2"/>
+    <rect x="14" y="2" width="2" height="4" rx="1" fill="#1967D2"/>
+  </svg>
+);
+
 const CanvaLogo = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6">
     <circle cx="12" cy="12" r="10" fill="#00C4CC"/>
@@ -133,20 +146,31 @@ const INTEGRATIONS: Integration[] = [
     logo: <DiscordLogo />,
   },
   {
-    name: "Email",
-    key: "email",
-    description: "Automated reports and digests",
+    name: "Email (Gmail)",
+    key: "google",
+    description: "Read and send emails via Gmail",
     category: "communication",
-    defaultStatus: "connected",
+    defaultStatus: "available",
     logo: <EmailLogo />,
+    authUrl: "/api/auth/google",
   },
   {
     name: "Google Drive",
-    key: "gdrive",
+    key: "google",
     description: "Sync documents and spreadsheets",
     category: "productivity",
     defaultStatus: "available",
     logo: <GoogleDriveLogo />,
+    authUrl: "/api/auth/google",
+  },
+  {
+    name: "Google Calendar",
+    key: "google",
+    description: "Upcoming events and schedule",
+    category: "productivity",
+    defaultStatus: "available",
+    logo: <GoogleCalendarLogo />,
+    authUrl: "/api/auth/google",
   },
   {
     name: "Notion",
@@ -197,6 +221,7 @@ const TOKEN_KEYS: Record<string, string> = {
   tiktok: "tiktok_access_token",
   slack: "slack_access_token",
   notion: "notion_access_token",
+  google: "whut_google_tokens",
 };
 
 function getConnectionStatus(integration: Integration): IntegrationStatus {
@@ -254,6 +279,20 @@ export default function IntegrationsPage() {
       window.history.replaceState({}, "", "/dashboard/integrations");
     }
   }, [searchParams]);
+
+  // Process Google OAuth tokens from URL hash
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash.includes("google_tokens=")) {
+      const encoded = hash.split("google_tokens=")[1];
+      try {
+        const tokens = JSON.parse(decodeURIComponent(encoded));
+        localStorage.setItem("whut_google_tokens", JSON.stringify(tokens));
+        window.history.replaceState({}, "", "/dashboard/integrations");
+      } catch { /* ignore */ }
+    }
+  }, []);
 
   useEffect(() => {
     processCallbackTokens();
