@@ -17,14 +17,14 @@ import FileListCard from "./cards/FileListCard";
 import MarkdownCard from "./cards/MarkdownCard";
 import ActionCard from "./cards/ActionCard";
 
-function CardContent({ card }: { card: Card }) {
+function CardContent({ card, onAddCard }: { card: Card; onAddCard?: (card: Card) => void }) {
   switch (card.type) {
     case "stat": return <StatCard data={card.data} />;
     case "chart": return <ChartCard data={card.data} />;
-    case "email-list": return <EmailListCard data={card.data} />;
+    case "email-list": return <EmailListCard data={card.data} onAddCard={onAddCard} />;
     case "email-compose": return <EmailComposeCard data={card.data} />;
     case "email-detail": return <EmailDetailCard data={card.data} />;
-    case "calendar": return <CalendarCard data={card.data} />;
+    case "calendar": return <CalendarCard data={card.data} onAddCard={onAddCard} />;
     case "research": return <ResearchCard data={card.data} />;
     case "content": return <ContentCard data={card.data} />;
     case "file-list": return <FileListCard data={card.data} />;
@@ -57,12 +57,14 @@ function SingleCard({
   card,
   onClose,
   onMinimize,
+  onAddCard,
   index,
   totalCards,
 }: {
   card: Card;
   onClose: (id: string) => void;
   onMinimize: (id: string) => void;
+  onAddCard?: (card: Card) => void;
   index: number;
   totalCards: number;
 }) {
@@ -173,7 +175,7 @@ function SingleCard({
               exit={{ height: 0, opacity: 0 }}
               transition={{ type: "spring", damping: 28, stiffness: 300 }}
             >
-              <CardContent card={card} />
+              <CardContent card={card} onAddCard={onAddCard} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -185,9 +187,10 @@ function SingleCard({
 interface CardRendererProps {
   cards: Card[];
   onClose?: () => void;
+  onAddCard?: (card: Card) => void;
 }
 
-export default function CardRenderer({ cards, onClose }: CardRendererProps) {
+export default function CardRenderer({ cards, onClose, onAddCard }: CardRendererProps) {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [minimizedIds, setMinimizedIds] = useState<Set<string>>(new Set());
 
@@ -247,6 +250,7 @@ export default function CardRenderer({ cards, onClose }: CardRendererProps) {
               totalCards={visibleCards.length}
               onClose={handleClose}
               onMinimize={handleMinimize}
+              onAddCard={onAddCard}
             />
           ))}
         </AnimatePresence>

@@ -332,7 +332,7 @@ export default function DashboardPage() {
       {/* Card display */}
       <AnimatePresence>
         {cards.length > 0 && (
-          <CardRenderer cards={cards} onClose={closeCards} />
+          <CardRenderer cards={cards} onClose={closeCards} onAddCard={(card) => setCards(prev => [...prev, card])} />
         )}
       </AnimatePresence>
 
