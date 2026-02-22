@@ -630,7 +630,9 @@ export default function DashboardPage() {
   };
 
   // Compute orb visual state
-  const orbState: OrbState = tts.isSpeaking
+  const orbState: OrbState = aiScene
+    ? "scene-active"
+    : tts.isSpeaking
     ? "speaking"
     : thinking || aiLoading
     ? "thinking"
@@ -649,13 +651,14 @@ export default function DashboardPage() {
       onClick={() => setFocusedPanel(null)}
     >
       {/* Orb */}
-      <div className="absolute inset-0 pointer-events-none">
+      <div className={`absolute inset-0 pointer-events-none ${aiScene ? 'z-5' : 'z-10'}`}>
         <motion.div
           animate={{
-            y: hasContent ? -80 : 0,
-            scale: hasContent ? 0.7 : 1,
+            y: aiScene ? "-35vh" : hasContent ? -80 : 0,
+            scale: aiScene ? 1 : hasContent ? 0.7 : 1,
+            opacity: aiScene ? 0.5 : 1,
           }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
+          transition={{ type: "spring", stiffness: 130, damping: 18, duration: 0.6 }}
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
           <div className="hidden md:block">
@@ -1197,20 +1200,7 @@ export default function DashboardPage() {
             <div className="shrink-0 h-[45vh] md:h-[40vh]" />
             <SceneRenderer scene={aiScene} onClose={closeView} />
             <div className="shrink-0 h-24" />
-            {/* Thinking overlay on top of existing scene */}
-            <AnimatePresence>
-              {thinking && (
-                <motion.div
-                  className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-md px-3 py-1.5 text-xs text-white/60"
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                >
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  Thinking…
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Thinking state is now indicated by the orb animation — no text overlay */}
           </motion.div>
         )}
 
@@ -1248,23 +1238,7 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ========== LOADING STATE ========== */}
-        {aiLoading && !aiBlocks && (
-          <motion.div key="ai-loading" className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-            <motion.div
-              className="px-6 py-3 text-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <div className="flex items-center gap-3">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#00d4aa] animate-pulse" />
-                <motion.span className="text-sm text-white/40" animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity }}>
-                  Thinking...
-                </motion.span>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        {/* Loading state is now indicated by the orb's thinking animation */}
 
         {/* ========== HELP ========== */}
         {activeView === "help" && (
