@@ -86,7 +86,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-8 py-4 sm:py-5 backdrop-blur-md bg-[#06060f]/60 border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-bold tracking-tight text-white">WHUT</span>
+          <img src="/whut-logo.svg" alt="WHUT" className="h-7 w-7" />
           <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 mt-0.5">OS</span>
         </div>
         <div className="flex items-center gap-4 sm:gap-8">
@@ -466,7 +466,7 @@ export default function Home() {
       <footer className="relative z-10 border-t border-white/[0.04] px-4 sm:px-6 py-8">
         <div className="mx-auto max-w-6xl flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-white">WHUT</span>
+            <img src="/whut-logo.svg" alt="WHUT" className="h-5 w-5" />
             <span className="text-[9px] uppercase tracking-[0.3em] text-white/30">OS</span>
           </div>
           <p className="text-xs text-white/30">© 2026 WHUT.AI. All rights reserved.</p>

@@ -40,7 +40,7 @@ export default function LoginPage() {
         >
           <div className="space-y-2 text-center">
             <div className="flex items-center justify-center gap-2 mb-4">
-              <span className="text-xl font-bold tracking-tight text-white">WHUT</span>
+              <img src="/whut-logo.svg" alt="WHUT" className="h-10 w-10" />
               <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 mt-0.5">OS</span>
             </div>
             <h1 className="text-3xl font-light text-white">Sign in</h1>
