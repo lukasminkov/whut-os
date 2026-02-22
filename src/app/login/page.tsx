@@ -18,6 +18,7 @@ export default function LoginPage() {
 
     setTimeout(() => {
       if (email === "minkovgroup@gmail.com" && password === "whutaios12345") {
+        localStorage.setItem("whut-os-auth", "true");
         router.push("/dashboard");
       } else {
         setError("Invalid credentials. Access denied.");

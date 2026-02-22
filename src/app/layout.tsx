@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PAYPER OS",
-  description: "AI-first operating system for brand intelligence.",
+  title: "WHUT OS",
+  description: "AI-first operating system for creators and agencies.",
 };
 
 export default function RootLayout({
