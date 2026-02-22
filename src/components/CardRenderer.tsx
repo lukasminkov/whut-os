@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Card } from "@/lib/card-types";
-import { cardSizeToCss } from "@/lib/layout-engine";
 
 // Card content components
 import StatCard from "./cards/StatCard";
@@ -35,89 +34,61 @@ function CardContent({ card }: { card: Card }) {
   }
 }
 
-function DraggableCard({
+/** Map card size to grid column span */
+function sizeToSpan(size: string, totalCards: number): string {
+  if (totalCards === 1) return "col-span-full";
+  switch (size) {
+    case "full": return "col-span-full";
+    case "large": return "md:col-span-2";
+    case "small": return "col-span-1";
+    default: return "col-span-1"; // medium
+  }
+}
+
+function SingleCard({
   card,
   onClose,
   onMinimize,
   index,
+  totalCards,
 }: {
   card: Card;
   onClose: (id: string) => void;
   onMinimize: (id: string) => void;
   index: number;
+  totalCards: number;
 }) {
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
-
-  const dragHandleRef = useRef<HTMLDivElement>(null);
-
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
-    // Capture on the handle div, not the target (which could be a child)
-    dragHandleRef.current?.setPointerCapture(e.pointerId);
-  }, [offset]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging) return;
-    e.preventDefault();
-    setOffset({
-      x: dragStart.current.ox + e.clientX - dragStart.current.x,
-      y: dragStart.current.oy + e.clientY - dragStart.current.y,
-    });
-  }, [dragging]);
-
-  const onPointerUp = useCallback(() => setDragging(false), []);
-
-  const { width, maxHeight } = cardSizeToCss(card.size);
+  const span = sizeToSpan(card.size, totalCards);
 
   return (
     <motion.div
-      className="absolute"
-      style={{
-        left: `${card.position.x}%`,
-        top: `${card.position.y}%`,
-        transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
-        width,
-        maxHeight,
-        zIndex: dragging ? 100 : 10 + index,
-      }}
-      initial={{ opacity: 0, scale: 0.88, y: 20 }}
+      className={`${span} min-w-0`}
+      layout
+      initial={{ opacity: 0, scale: 0.92, y: 16 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.85, y: -10 }}
+      exit={{ opacity: 0, scale: 0.9, y: -8 }}
       transition={{
         type: "spring",
-        damping: 22,
-        stiffness: 200,
-        delay: index * 0.1,
+        damping: 24,
+        stiffness: 220,
+        delay: index * 0.08,
       }}
     >
       <div
         className={`rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col ${
-          card.minimized ? "" : "max-h-[inherit]"
+          card.minimized ? "" : "max-h-[70vh]"
         }`}
       >
-        {/* Title bar — drag handle */}
-        <div
-          ref={dragHandleRef}
-          className="flex items-center gap-2 px-4 py-2.5 cursor-grab active:cursor-grabbing select-none shrink-0 touch-none"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-        >
+        {/* Title bar */}
+        <div className="flex items-center gap-2 px-4 py-2.5 select-none shrink-0 border-b border-white/[0.04]">
           <div className="flex gap-1.5">
             <button
               onClick={() => onClose(card.id)}
               className="w-3 h-3 rounded-full bg-white/10 hover:bg-rose-500/60 transition-colors"
-              title="Close"
             />
             <button
               onClick={() => onMinimize(card.id)}
               className="w-3 h-3 rounded-full bg-white/10 hover:bg-amber-500/60 transition-colors"
-              title="Minimize"
             />
           </div>
           <span className="text-[11px] text-white/40 uppercase tracking-[0.15em] truncate flex-1 ml-2">
@@ -127,15 +98,9 @@ function DraggableCard({
 
         {/* Content */}
         {!card.minimized && (
-          <motion.div
-            className="px-4 pb-4 overflow-y-auto flex-1"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
+          <div className="px-4 pb-4 pt-2 overflow-y-auto flex-1">
             <CardContent card={card} />
-          </motion.div>
+          </div>
         )}
       </div>
     </motion.div>
@@ -166,35 +131,51 @@ export default function CardRenderer({ cards, onClose }: CardRendererProps) {
 
   const visibleCards = cards
     .filter(c => !hiddenIds.has(c.id))
-    .map(c => ({ ...c, minimized: minimizedIds.has(c.id) }));
+    .map(c => ({ ...c, minimized: minimizedIds.has(c.id) }))
+    .sort((a, b) => a.priority - b.priority);
+
+  // Determine grid columns based on card count
+  const gridCols = visibleCards.length === 1
+    ? "grid-cols-1"
+    : visibleCards.length === 2
+    ? "grid-cols-1 md:grid-cols-2"
+    : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
   return (
-    <div className="absolute inset-0 z-30">
-      {/* Close all button */}
-      {onClose && (
-        <motion.button
-          onClick={onClose}
-          className="absolute top-4 right-6 z-50 flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-3 py-1.5 rounded-lg hover:bg-white/[0.04]"
+    <div className="relative z-30 w-full h-full overflow-y-auto px-6 py-6">
+      {/* Close all */}
+      {onClose && visibleCards.length > 0 && (
+        <motion.div
+          className="flex justify-end mb-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.2 }}
         >
-          <span>✕</span>
-          <span>Close all</span>
-        </motion.button>
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-3 py-1.5 rounded-lg hover:bg-white/[0.04]"
+          >
+            <span>✕</span>
+            <span>Close all</span>
+          </button>
+        </motion.div>
       )}
 
-      <AnimatePresence>
-        {visibleCards.map((card, i) => (
-          <DraggableCard
-            key={card.id}
-            card={card}
-            index={i}
-            onClose={handleClose}
-            onMinimize={handleMinimize}
-          />
-        ))}
-      </AnimatePresence>
+      {/* Card grid */}
+      <div className={`grid ${gridCols} gap-4 max-w-5xl mx-auto`}>
+        <AnimatePresence mode="popLayout">
+          {visibleCards.map((card, i) => (
+            <SingleCard
+              key={card.id}
+              card={card}
+              index={i}
+              totalCards={visibleCards.length}
+              onClose={handleClose}
+              onMinimize={handleMinimize}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
