@@ -1,4 +1,19 @@
-// Claude tool definitions for structured visualization responses
+// V2 Scene Graph types (primary API going forward)
+export {
+  renderSceneTool,
+  wrapV1Block,
+  type SceneNode,
+  type DataSource,
+  type Action,
+  type ComponentType,
+  type LayoutType,
+  COMPONENT_TYPES,
+  LAYOUT_TYPES,
+} from "./scene-types";
+
+// ─── V1 Legacy Tools (kept for backward compatibility) ───
+// The VisualizationEngine on the frontend still uses these type names.
+// New code should use render_scene and SceneNode types from scene-types.ts.
 
 export const visualizationTools = [
   {

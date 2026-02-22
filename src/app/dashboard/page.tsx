@@ -7,6 +7,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import VisualizationEngine from "@/components/VisualizationEngine";
 import type { VisualizationBlock } from "@/lib/visualization-tools";
+import SceneRenderer from "@/components/SceneRenderer";
+import type { SceneNode } from "@/lib/scene-types";
 import AIOrb from "@/components/AIOrb";
 import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
@@ -229,6 +231,7 @@ export default function DashboardPage() {
   const [showGreeting, setShowGreeting] = useState(true);
   const [focusedPanel, setFocusedPanel] = useState<string | null>(null);
   const [aiBlocks, setAiBlocks] = useState<VisualizationBlock[] | null>(null);
+  const [aiScene, setAiScene] = useState<SceneNode | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<{ id: string; from: string; subject: string; snippet: string; date: string; unread: boolean; important: boolean } | null>(null);
@@ -286,6 +289,7 @@ export default function DashboardPage() {
     setThinking(true);
     setActiveView(null);
     setAiBlocks(null);
+    setAiScene(null);
 
     // Add user message to transcript
     setTranscriptMessages(prev => [...prev, {
@@ -312,6 +316,17 @@ export default function DashboardPage() {
     setLoadingAction(detectLoadingAction(trimmed));
 
     try {
+      // Gather context for AI
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      const device = screenW < 768 ? "mobile" : screenW < 1024 ? "tablet" : "desktop";
+      const connectedIntegrations: string[] = [];
+      try {
+        const gt = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}');
+        if (gt.access_token) connectedIntegrations.push("gmail", "calendar", "drive");
+      } catch {}
+      try { if (localStorage.getItem('whut_tiktok_tokens')) connectedIntegrations.push("tiktok"); } catch {}
+
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,6 +335,10 @@ export default function DashboardPage() {
           history: chatHistory,
           googleAccessToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.access_token || null; } catch { return null; } })(),
           googleRefreshToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.refresh_token || null; } catch { return null; } })(),
+          context: {
+            integrations: connectedIntegrations,
+            screen: { width: screenW, height: screenH, device },
+          },
         }),
       });
       if (!response.ok) {
@@ -329,9 +348,15 @@ export default function DashboardPage() {
       const result = await response.json();
       setThinking(false);
 
+      // V2 scene graph response
+      if (result.scene?.layout) {
+        setAiScene(result.scene.layout);
+        setAiBlocks(null);
+      }
+
       if (result.blocks && result.blocks.length > 0) {
         const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
-        if (hasVisuals) {
+        if (hasVisuals && !result.scene?.layout) {
           setAiBlocks(result.blocks);
         }
 
@@ -441,9 +466,10 @@ export default function DashboardPage() {
     setFocusedPanel((prev) => (prev === id ? null : id));
   };
 
-  const orbSize = activeView || aiBlocks ? 180 : 300;
-  const mobileOrbSize = activeView || aiBlocks ? 100 : 160;
-  const closeView = () => { setActiveView(null); setAiBlocks(null); };
+  const hasContent = activeView || aiBlocks || aiScene;
+  const orbSize = hasContent ? 180 : 300;
+  const mobileOrbSize = hasContent ? 100 : 160;
+  const closeView = () => { setActiveView(null); setAiBlocks(null); setAiScene(null); };
 
   return (
     <div
@@ -454,8 +480,8 @@ export default function DashboardPage() {
       <div className="absolute inset-0 pointer-events-none">
         <motion.div
           animate={{
-            y: activeView || aiBlocks ? -80 : 0,
-            scale: activeView || aiBlocks ? 0.7 : 1,
+            y: hasContent ? -80 : 0,
+            scale: hasContent ? 0.7 : 1,
           }}
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -467,7 +493,7 @@ export default function DashboardPage() {
             <AIOrb state={tts.isSpeaking ? "speaking" : voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
           </div>
           <AnimatePresence>
-            {!activeView && !aiBlocks && showGreeting && !loadingAction && (
+            {!hasContent && showGreeting && !loadingAction && (
               <motion.p
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -985,8 +1011,41 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ========== AI VISUALIZATION RESPONSE (center of HUD) ========== */}
-        {aiBlocks && (
+        {/* ========== V2 SCENE GRAPH RESPONSE ========== */}
+        {aiScene && (
+          <motion.div key="ai-scene" className="absolute inset-0 z-30">
+            {/* Mobile */}
+            <div className="md:hidden absolute inset-0 pt-4 pb-24 px-4 overflow-y-auto">
+              <button
+                onClick={closeView}
+                className="sticky top-0 z-10 mb-3 flex items-center gap-2 text-xs text-white/50 hover:text-white/80"
+              >
+                ← Back
+              </button>
+              <SceneRenderer scene={aiScene} />
+            </div>
+            {/* Desktop */}
+            <motion.div
+              className="hidden md:block absolute inset-0 overflow-y-auto pt-6 pb-24 px-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="max-w-5xl mx-auto relative">
+                <button
+                  onClick={closeView}
+                  className="absolute -top-1 right-0 z-10 text-xs text-white/40 hover:text-white transition px-3 py-1.5 glass-card"
+                >
+                  ✕ Close
+                </button>
+                <SceneRenderer scene={aiScene} />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ========== AI VISUALIZATION RESPONSE (V1 fallback) ========== */}
+        {aiBlocks && !aiScene && (
           <motion.div key="ai-viz" className="absolute inset-0 z-30">
             {/* Mobile */}
             <div className="md:hidden absolute inset-0 pt-4 pb-24 px-4 overflow-y-auto">

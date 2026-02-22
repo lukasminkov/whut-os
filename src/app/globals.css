@@ -170,3 +170,29 @@ body.dashboard-active {
   border-color: rgba(255, 255, 255, 0.3) !important;
   opacity: 0.5;
 }
+
+/* Shimmer animation for loading skeletons */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Scene grid responsive breakpoints */
+@media (max-width: 767px) {
+  .scene-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .scene-grid > * {
+    grid-column: span 1 !important;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .scene-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .scene-grid > *[style*="grid-column: span 3"],
+  .scene-grid > *[style*="grid-column: span 4"] {
+    grid-column: span 2 !important;
+  }
+}
