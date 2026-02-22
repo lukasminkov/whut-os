@@ -10,6 +10,8 @@ import type { VisualizationBlock } from "@/lib/visualization-tools";
 import SceneRenderer from "@/components/SceneRenderer";
 import type { SceneNode } from "@/lib/scene-types";
 import AIOrb from "@/components/AIOrb";
+import type { OrbState } from "@/components/AIOrb";
+import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
 import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
@@ -238,9 +240,43 @@ export default function DashboardPage() {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("whut_app_mode") as AppMode) || "chat";
+    }
+    return "chat";
+  });
+  const [speechActive, setSpeechActive] = useState(false); // whether speech loop is running
   const tts = useTTS();
   const googleData = useGoogleData();
+  const speechLoopRef = useRef(false); // tracks if we should auto-restart listening
+
+  // Mode toggle handler
+  const toggleMode = useCallback(() => {
+    setAppMode(prev => {
+      const next = prev === "chat" ? "speech" : "chat";
+      localStorage.setItem("whut_app_mode", next);
+      if (next === "chat") {
+        // Exiting speech mode: stop everything
+        tts.stop();
+        speechLoopRef.current = false;
+        setSpeechActive(false);
+      }
+      return next;
+    });
+  }, [tts]);
+
+  // Cmd+M / Alt+M keyboard shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "m" && (e.metaKey || e.altKey)) {
+        e.preventDefault();
+        toggleMode();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleMode]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowGreeting(false), 4200);
@@ -378,7 +414,17 @@ export default function DashboardPage() {
 
         // TTS: speak the text portion of the response
         const speakable = extractSpeakableText(result.blocks);
-        if (speakable) tts.speak(speakable);
+        if (speakable) {
+          tts.speak(speakable, () => {
+            // After TTS finishes, auto-restart listening if in speech mode
+            if (speechLoopRef.current) {
+              voice.startListening();
+            }
+          });
+        } else if (speechLoopRef.current) {
+          // No speakable text but in speech mode — resume listening
+          voice.startListening();
+        }
 
         setChatHistory(prev => [
           ...prev,
@@ -392,6 +438,8 @@ export default function DashboardPage() {
           text: "I couldn't generate a response. Please try again.",
           timestamp: Date.now(),
         }]);
+        // Resume listening in speech mode even on empty response
+        if (speechLoopRef.current) voice.startListening();
       }
     } catch (error: any) {
       setTranscriptMessages(prev => [...prev, {
@@ -401,6 +449,8 @@ export default function DashboardPage() {
         timestamp: Date.now(),
       }]);
       setThinking(false);
+      // Resume listening in speech mode even on error
+      if (speechLoopRef.current) voice.startListening();
     } finally {
       setAiLoading(false);
       setLoadingAction(null);
@@ -417,7 +467,7 @@ export default function DashboardPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const handleVoiceFinal = useCallback((text: string) => {
     setInput("");
-    tts.stop(); // Stop any ongoing TTS when user submits voice
+    tts.stop(); // Barge-in: stop any ongoing TTS when user submits voice
     sendToAI(text);
   }, [sendToAI, tts]);
 
@@ -428,13 +478,30 @@ export default function DashboardPage() {
     silenceTimeout: 1500,
   });
 
-  // Track voice mode
-  useEffect(() => {
-    setIsVoiceMode(voice.state === "listening" || voice.state === "processing");
-  }, [voice.state]);
+  // Start/stop speech loop
+  const startSpeechMode = useCallback(() => {
+    speechLoopRef.current = true;
+    setSpeechActive(true);
+    voice.startListening();
+  }, [voice]);
 
-  // Push-to-talk: hold spacebar
+  const stopSpeechMode = useCallback(() => {
+    speechLoopRef.current = false;
+    setSpeechActive(false);
+    tts.stop();
+    voice.stopListening();
+  }, [voice, tts]);
+
+  // Barge-in: if user starts listening while TTS is speaking, cancel TTS
   useEffect(() => {
+    if (voice.state === "listening" && tts.isSpeaking) {
+      tts.stop();
+    }
+  }, [voice.state, tts.isSpeaking, tts]);
+
+  // Push-to-talk: hold spacebar (chat mode only — speech mode uses persistent listening)
+  useEffect(() => {
+    if (appMode !== "chat") return;
     const isInputFocused = () => document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
     
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -460,11 +527,20 @@ export default function DashboardPage() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [voice.state, voice.startListening, voice.stopListening]);
+  }, [appMode, voice.state, voice.startListening, voice.stopListening]);
 
   const handleFocus = (id: string) => {
     setFocusedPanel((prev) => (prev === id ? null : id));
   };
+
+  // Compute orb visual state
+  const orbState: OrbState = tts.isSpeaking
+    ? "speaking"
+    : thinking || aiLoading
+    ? "thinking"
+    : voice.state === "listening"
+    ? "listening"
+    : "idle";
 
   const hasContent = activeView || aiBlocks || aiScene;
   const orbSize = hasContent ? 180 : 300;
@@ -487,10 +563,10 @@ export default function DashboardPage() {
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
           <div className="hidden md:block">
-            <AIOrb state={tts.isSpeaking ? "speaking" : voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={orbSize} />
+            <AIOrb state={orbState} size={orbSize} />
           </div>
           <div className="md:hidden">
-            <AIOrb state={tts.isSpeaking ? "speaking" : voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
+            <AIOrb state={orbState} size={mobileOrbSize} />
           </div>
           <AnimatePresence>
             {!hasContent && showGreeting && !loadingAction && (
@@ -1128,6 +1204,22 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
+      {/* Speech mode state label under orb */}
+      <AnimatePresence>
+        {appMode === "speech" && speechActive && !voice.state.startsWith("listen") && !thinking && (
+          <motion.div
+            className="absolute top-[calc(50%+80px)] left-1/2 -translate-x-1/2 z-40 text-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {tts.isSpeaking && (
+              <span className="text-[10px] uppercase tracking-[0.3em] text-purple-400/60">Speaking...</span>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Voice listening overlay */}
       <AnimatePresence>
         {voice.state === "listening" && (
@@ -1175,9 +1267,9 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Input bar — minimized during voice mode */}
+      {/* ===== CHAT MODE: Full input bar ===== */}
       <AnimatePresence>
-        {!isVoiceMode && (
+        {appMode === "chat" && (
           <motion.div
             className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
             initial={{ opacity: 0, y: 10 }}
@@ -1185,38 +1277,7 @@ export default function DashboardPage() {
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.2 }}
           >
-            {/* Mic button */}
-            <button
-              onClick={voice.toggleListening}
-              className="relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 glass-button text-white/40 hover:text-white/70"
-              title="Voice input (or hold Space)"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" x2="12" y1="19" y2="22" />
-              </svg>
-            </button>
-            {/* TTS mute/unmute toggle */}
-            <button
-              onClick={tts.toggleMute}
-              className="relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 glass-button text-white/40 hover:text-white/70"
-              title={tts.isMuted ? "Unmute AI voice" : "Mute AI voice"}
-            >
-              {tts.isMuted ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  <line x1="23" y1="9" x2="17" y2="15" />
-                  <line x1="17" y1="9" x2="23" y2="15" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                </svg>
-              )}
-            </button>
+            <ModeToggle mode={appMode} onToggle={toggleMode} />
             <input
               ref={inputRef}
               value={input}
@@ -1237,28 +1298,65 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Minimal mic button when in voice mode (bottom center) */}
+      {/* ===== SPEECH MODE: Orb-centric with minimal controls ===== */}
       <AnimatePresence>
-        {isVoiceMode && (
-          <motion.button
-            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-center w-12 h-12 rounded-full bg-red-500/20 border border-red-500/40 text-red-400"
-            onClick={voice.stopListening}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            title="Stop listening"
+        {appMode === "speech" && (
+          <motion.div
+            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
           >
-            <motion.div
-              className="absolute inset-0 rounded-full border-2 border-red-500/30"
-              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0, 0.4] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            />
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-          </motion.button>
+            <ModeToggle mode={appMode} onToggle={toggleMode} />
+            {/* Main speech button */}
+            {!speechActive ? (
+              <button
+                onClick={startSpeechMode}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 transition-all text-sm text-white/70 hover:text-white"
+                title="Start speech mode"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+                Start listening
+              </button>
+            ) : (
+              <button
+                onClick={stopSpeechMode}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all text-sm text-red-400"
+                title="Stop speech mode"
+              >
+                <motion.div
+                  className="w-3 h-3 rounded-full bg-red-500"
+                  animate={{ opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                />
+                Stop
+              </button>
+            )}
+            {/* Mute toggle */}
+            <button
+              onClick={tts.toggleMute}
+              className="flex items-center justify-center w-10 h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/40 hover:text-white/70"
+              title={tts.isMuted ? "Unmute AI voice" : "Mute AI voice"}
+            >
+              {tts.isMuted ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </svg>
+              )}
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

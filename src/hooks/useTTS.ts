@@ -12,8 +12,8 @@ export function useTTS() {
   });
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const onEndRef = useRef<(() => void) | null>(null);
 
-  // Pick a good voice once voices are loaded
   useEffect(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
 
@@ -21,7 +21,6 @@ export function useTTS() {
       const voices = window.speechSynthesis.getVoices();
       if (!voices.length) return;
 
-      // Prefer natural-sounding English voices
       const preferred = [
         "Samantha", "Karen", "Daniel", "Google UK English Female",
         "Google UK English Male", "Google US English", "Moira", "Fiona",
@@ -33,7 +32,6 @@ export function useTTS() {
         if (v) { voiceRef.current = v; return; }
       }
 
-      // Fallback: any English voice
       const en = voices.find((v) => v.lang.startsWith("en"));
       if (en) voiceRef.current = en;
     };
@@ -43,11 +41,15 @@ export function useTTS() {
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (!text || isMuted || typeof window === "undefined" || !window.speechSynthesis) return;
+  const speak = useCallback((text: string, onEnd?: () => void) => {
+    if (!text || isMuted || typeof window === "undefined" || !window.speechSynthesis) {
+      // If muted, still fire onEnd so the speech loop continues
+      onEnd?.();
+      return;
+    }
 
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
+    onEndRef.current = onEnd || null;
 
     const utterance = new SpeechSynthesisUtterance(text);
     if (voiceRef.current) utterance.voice = voiceRef.current;
@@ -56,8 +58,16 @@ export function useTTS() {
     utterance.volume = 0.9;
 
     utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      onEndRef.current?.();
+      onEndRef.current = null;
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      onEndRef.current?.();
+      onEndRef.current = null;
+    };
 
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
@@ -67,6 +77,7 @@ export function useTTS() {
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+    onEndRef.current = null;
     setIsSpeaking(false);
   }, []);
 
@@ -85,10 +96,6 @@ export function useTTS() {
   return { isSpeaking, isMuted, speak, stop, toggleMute };
 }
 
-/**
- * Extract only the spoken-friendly text from AI response blocks.
- * Strips visualization data, chart numbers, code, etc.
- */
 export function extractSpeakableText(blocks: any[]): string {
   const textParts = blocks
     .filter((b: any) => b.type === "text")
@@ -97,18 +104,16 @@ export function extractSpeakableText(blocks: any[]): string {
 
   if (!textParts) return "";
 
-  // Clean up markdown artifacts
   let clean = textParts
-    .replace(/```[\s\S]*?```/g, "") // code blocks
-    .replace(/\|.*\|/g, "") // table rows
-    .replace(/[#*_~`>]/g, "") // markdown chars
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links → text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\|.*\|/g, "")
+    .replace(/[#*_~`>]/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/\n{2,}/g, ". ")
     .replace(/\n/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  // Truncate for speech — keep it concise
   if (clean.length > 300) {
     const cutoff = clean.lastIndexOf(".", 280);
     clean = clean.slice(0, cutoff > 100 ? cutoff + 1 : 280) + ".";
