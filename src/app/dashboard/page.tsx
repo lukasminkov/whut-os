@@ -390,46 +390,44 @@ export default function DashboardPage() {
         setAiBlocks(null);
       }
 
+      // Handle v1 blocks (non-scene responses)
       if (result.blocks && result.blocks.length > 0) {
         const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
         if (hasVisuals && !result.scene?.layout) {
           setAiBlocks(result.blocks);
         }
+      }
 
-        // Extract text for transcript
-        const textParts = result.blocks
-          .filter((b: any) => b.type === "text")
-          .map((b: any) => b.content)
-          .join(" ");
-        
-        const summaryText = textParts || (hasVisuals ? "Here you go." : "Done.");
+      // Extract text for transcript + TTS (works for both v1 blocks and v2 scenes)
+      const speakable = extractSpeakableText(result.blocks || [], result.scene?.layout);
+      const summaryText = speakable || (result.scene?.layout ? "Here you go." : "Done.");
 
-        // Add assistant message to transcript
-        setTranscriptMessages(prev => [...prev, {
-          id: nextMsgId(),
-          role: "assistant",
-          text: summaryText,
-          timestamp: Date.now(),
-        }]);
+      // Add assistant message to transcript
+      setTranscriptMessages(prev => [...prev, {
+        id: nextMsgId(),
+        role: "assistant",
+        text: summaryText,
+        timestamp: Date.now(),
+      }]);
 
-        // TTS: speak the text portion of the response
-        const speakable = extractSpeakableText(result.blocks);
-        if (speakable) {
-          tts.speak(speakable, () => {
-            // After TTS finishes, auto-restart listening if in speech mode
-            if (speechLoopRef.current) {
-              voice.startListening();
-            }
-          });
-        } else if (speechLoopRef.current) {
-          // No speakable text but in speech mode — resume listening
-          voice.startListening();
-        }
+      // TTS: speak the response
+      if (speakable) {
+        tts.speak(speakable, () => {
+          if (speechLoopRef.current) {
+            voice.startListening();
+          }
+        });
+      } else if (speechLoopRef.current) {
+        voice.startListening();
+      }
 
+      // Update chat history
+      const hasAnyResponse = (result.blocks && result.blocks.length > 0) || result.scene?.layout;
+      if (hasAnyResponse) {
         setChatHistory(prev => [
           ...prev,
           { role: "user", content: trimmed },
-          { role: "assistant", content: textParts || "[visualization response]" },
+          { role: "assistant", content: speakable || "[visualization response]" },
         ]);
       } else {
         setTranscriptMessages(prev => [...prev, {

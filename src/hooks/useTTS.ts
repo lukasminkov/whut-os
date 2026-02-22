@@ -163,11 +163,32 @@ export function useTTS() {
   return { isSpeaking, isMuted, speak, stop, toggleMute };
 }
 
-export function extractSpeakableText(blocks: any[]): string {
-  const textParts = blocks
+// Recursively extract text from v2 scene graph nodes
+function extractSceneText(node: any): string[] {
+  if (!node) return [];
+  const texts: string[] = [];
+  if (node.type === "text-block" || node.type === "markdown") {
+    const content = node.data?.content || node.content || "";
+    if (content) texts.push(content);
+  }
+  if (node.children && Array.isArray(node.children)) {
+    for (const child of node.children) {
+      texts.push(...extractSceneText(child));
+    }
+  }
+  return texts;
+}
+
+export function extractSpeakableText(blocks: any[], scene?: any): string {
+  // Try v2 scene graph first
+  const sceneTexts = scene ? extractSceneText(scene) : [];
+  
+  // Then v1 blocks
+  const blockTexts = (blocks || [])
     .filter((b: any) => b.type === "text")
-    .map((b: any) => b.content)
-    .join(" ");
+    .map((b: any) => b.content);
+  
+  const textParts = [...sceneTexts, ...blockTexts].join(" ");
 
   if (!textParts) return "";
 
