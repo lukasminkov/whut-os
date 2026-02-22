@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6-20250627",
         max_tokens: 4096,
         system: systemPrompt,
         tools: [renderSceneTool],
@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
       ? {
           input_tokens: data.usage.input_tokens ?? 0,
           output_tokens: data.usage.output_tokens ?? 0,
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6-20250627",
         }
       : undefined;
 
