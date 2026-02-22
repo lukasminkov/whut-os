@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exchangeCode } from '@/lib/google';
+import { createAdminClient } from '@/lib/supabase';
+import { createServerClient } from '@/lib/supabase-server';
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code');
@@ -25,7 +27,28 @@ export async function GET(req: NextRequest) {
       }
     } catch {}
 
-    // Build token payload to store client-side
+    // Try to save tokens server-side to Supabase
+    const supabase = await createServerClient();
+    if (supabase) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const admin = createAdminClient();
+        if (admin) {
+          await admin.from('integrations').upsert({
+            user_id: user.id,
+            provider: 'google',
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token || null,
+            token_expires_at: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString(),
+            scopes: ['gmail', 'calendar', 'drive'],
+            account_email: email || null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id,provider' });
+        }
+      }
+    }
+
+    // Still pass tokens via hash for backward compatibility (localStorage fallback)
     const payload = {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
@@ -34,7 +57,6 @@ export async function GET(req: NextRequest) {
       ...(email ? { email } : {}),
     };
 
-    // Redirect to integrations page with tokens in hash (not query — keeps them out of server logs)
     const redirectUrl = new URL('/dashboard/integrations', req.url);
     redirectUrl.hash = `google_tokens=${encodeURIComponent(JSON.stringify(payload))}`;
     return NextResponse.redirect(redirectUrl);

@@ -4,19 +4,44 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "./Sidebar";
+import { createClient } from "@/lib/supabase";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem("whut-os-auth") !== "true") {
-      router.replace("/login");
+    const supabase = createClient();
+    if (supabase) {
+      // Supabase auth
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) {
+          router.replace("/login");
+        } else {
+          setAuthed(true);
+          document.body.classList.add("dashboard-active");
+        }
+      });
+      // Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT' || !session) {
+          router.replace("/login");
+        }
+      });
+      return () => {
+        subscription.unsubscribe();
+        document.body.classList.remove("dashboard-active");
+      };
     } else {
-      setAuthed(true);
-      document.body.classList.add("dashboard-active");
+      // Fallback: localStorage auth
+      if (localStorage.getItem("whut-os-auth") !== "true") {
+        router.replace("/login");
+      } else {
+        setAuthed(true);
+        document.body.classList.add("dashboard-active");
+      }
+      return () => document.body.classList.remove("dashboard-active");
     }
-    return () => document.body.classList.remove("dashboard-active");
   }, [router]);
 
   if (!authed) return null;

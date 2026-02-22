@@ -13,10 +13,198 @@ import {
   SKILL_ONBOARDING,
   INTEGRATION_SKILLS,
 } from "@/lib/skills";
+import { createAdminClient, isSupabaseServerConfigured } from "@/lib/supabase";
+import { createServerClient } from "@/lib/supabase-server";
 
 // ── Helpers ──────────────────────────────────────────
 
-function buildSystemPrompt(context: any) {
+async function getUserFromRequest(): Promise<{ id: string; email?: string } | null> {
+  if (!isSupabaseServerConfigured()) return null;
+  try {
+    const supabase = await createServerClient();
+    if (!supabase) return null;
+    const { data: { user } } = await supabase.auth.getUser();
+    return user ? { id: user.id, email: user.email } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGoogleTokensFromDB(userId: string): Promise<{ access?: string; refresh?: string } | null> {
+  const admin = createAdminClient();
+  if (!admin) return null;
+  const { data } = await admin
+    .from('integrations')
+    .select('access_token, refresh_token, token_expires_at')
+    .eq('user_id', userId)
+    .eq('provider', 'google')
+    .single();
+  if (!data) return null;
+  return { access: data.access_token, refresh: data.refresh_token || undefined };
+}
+
+async function updateGoogleTokenInDB(userId: string, newAccessToken: string) {
+  const admin = createAdminClient();
+  if (!admin) return;
+  await admin.from('integrations').update({
+    access_token: newAccessToken,
+    token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq('user_id', userId).eq('provider', 'google');
+}
+
+async function loadMemories(userId: string): Promise<string> {
+  const admin = createAdminClient();
+  if (!admin) return '';
+  const { data } = await admin
+    .from('memories')
+    .select('category, content')
+    .eq('user_id', userId)
+    .order('importance', { ascending: false })
+    .limit(10);
+  if (!data || data.length === 0) return '';
+  const lines = data.map(m => `- [${m.category}] ${m.content}`).join('\n');
+  return `\n\n## What you know about the user:\n${lines}`;
+}
+
+async function loadConversationHistory(conversationId: string): Promise<{ role: string; content: string }[]> {
+  const admin = createAdminClient();
+  if (!admin) return [];
+  const { data } = await admin
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (!data) return [];
+  return data.reverse().map(m => ({ role: m.role, content: m.content }));
+}
+
+async function saveMessages(
+  conversationId: string,
+  userMsg: string,
+  assistantMsg: string,
+  cardsJson: any,
+  model: string,
+  tokensIn?: number,
+  tokensOut?: number,
+) {
+  const admin = createAdminClient();
+  if (!admin || !conversationId) return;
+  // Save user message
+  await admin.from('messages').insert({
+    conversation_id: conversationId,
+    role: 'user',
+    content: userMsg,
+  });
+  // Save assistant message
+  await admin.from('messages').insert({
+    conversation_id: conversationId,
+    role: 'assistant',
+    content: assistantMsg,
+    cards_json: cardsJson,
+    model,
+    tokens_in: tokensIn,
+    tokens_out: tokensOut,
+  });
+  // Update conversation
+  await admin.from('conversations').update({
+    last_message_at: new Date().toISOString(),
+  }).eq('id', conversationId);
+}
+
+async function extractAndSaveMemories(userId: string, userMsg: string, assistantMsg: string) {
+  const admin = createAdminClient();
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!admin || !apiKey) return;
+
+  // Check for explicit "remember" instruction
+  const rememberMatch = userMsg.match(/remember\s+(?:that\s+)?(.+)/i);
+  if (rememberMatch) {
+    await admin.from('memories').insert({
+      user_id: userId,
+      category: 'instruction',
+      content: rememberMatch[1].trim(),
+      importance: 0.9,
+      source: 'explicit',
+    });
+    return;
+  }
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 500,
+        messages: [{
+          role: "user",
+          content: `Extract any facts, preferences, or important information about the user from this conversation turn. Return as a JSON array of objects with {category, content, importance} where category is one of: preference, fact, relationship, instruction. importance is 0-1. Only include genuinely useful, non-obvious info. If nothing worth remembering, return [].
+
+User: ${userMsg}
+Assistant: ${assistantMsg}`,
+        }],
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return;
+    const memories = JSON.parse(jsonMatch[0]);
+    for (const mem of memories) {
+      if (mem.content && mem.category) {
+        // Check if similar memory already exists
+        const { data: existing } = await admin.from('memories')
+          .select('id, reinforcement_count')
+          .eq('user_id', userId)
+          .ilike('content', `%${mem.content.slice(0, 50)}%`)
+          .limit(1);
+        if (existing && existing.length > 0) {
+          // Reinforce existing memory
+          await admin.from('memories').update({
+            reinforcement_count: existing[0].reinforcement_count + 1,
+            last_accessed_at: new Date().toISOString(),
+          }).eq('id', existing[0].id);
+        } else {
+          await admin.from('memories').insert({
+            user_id: userId,
+            category: mem.category,
+            content: mem.content,
+            importance: mem.importance || 0.5,
+            source: 'inferred',
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Memory extraction error:', e);
+  }
+}
+
+async function trackUsageInDB(userId: string, model: string, tokensIn: number, tokensOut: number, conversationId?: string) {
+  const admin = createAdminClient();
+  if (!admin) return;
+  // Calculate cost (approximate)
+  const costPer1kIn = model.includes('opus') ? 0.015 : 0.003;
+  const costPer1kOut = model.includes('opus') ? 0.075 : 0.015;
+  const costCents = ((tokensIn / 1000) * costPer1kIn + (tokensOut / 1000) * costPer1kOut) * 100;
+  await admin.from('usage').insert({
+    user_id: userId,
+    model,
+    input_tokens: tokensIn,
+    output_tokens: tokensOut,
+    cost_cents: costCents,
+    conversation_id: conversationId || null,
+  });
+}
+
+function buildSystemPrompt(context: any, memoryBlock: string) {
   const integrations = context?.integrations || [];
   const profile = context?.userProfile || {};
   const tz = context?.timezone || profile?.timezone || "UTC";
@@ -25,7 +213,6 @@ function buildSystemPrompt(context: any) {
 
   let prompt = V3_SYSTEM_PROMPT;
 
-  // Add onboarding skill if needed
   if (isOnboarding) {
     prompt += `\n\n${SKILL_ONBOARDING}`;
     const step = profile?.onboardingStep || "welcome";
@@ -34,22 +221,21 @@ function buildSystemPrompt(context: any) {
     if (profile?.role) prompt += `\nRole: ${profile.role}`;
   }
 
-  // Add integration skills
   for (const i of integrations) {
     const skill = INTEGRATION_SKILLS[i];
     if (skill) prompt += `\n\n${skill}`;
   }
 
-  // User context
   prompt += `\n\n## Context\n- Time: ${time} (${tz})`;
   if (profile?.name) prompt += `\n- User: ${profile.name}`;
   if (integrations.length) prompt += `\n- Connected: ${integrations.join(", ")}`;
   else prompt += `\n- No integrations connected`;
 
+  if (memoryBlock) prompt += memoryBlock;
+
   return prompt;
 }
 
-// Smart model selection
 function selectModel(msg: string): string {
   const lower = msg.toLowerCase();
   const opusPatterns = [
@@ -61,15 +247,14 @@ function selectModel(msg: string): string {
   return "claude-sonnet-4-6";
 }
 
-// Execute a tool call server-side
 async function executeTool(
   name: string,
   input: any,
   tokens: { access?: string; refresh?: string },
+  userId?: string,
 ): Promise<{ result: any; status?: string }> {
   let accessToken = tokens.access || "";
 
-  // Helper: refresh token on 401
   const withRefresh = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     try {
       return await fn(accessToken);
@@ -78,6 +263,8 @@ async function executeTool(
         const refreshed = await refreshAccessToken(tokens.refresh);
         if (refreshed.access_token) {
           accessToken = refreshed.access_token;
+          // Update DB with new token
+          if (userId) await updateGoogleTokenInDB(userId, accessToken);
           return await fn(accessToken);
         }
       }
@@ -96,7 +283,6 @@ async function executeTool(
     }
     case "fetch_calendar": {
       const events = await withRefresh(t => getUpcomingEvents(t, input.maxResults || 10));
-      // Normalize Google Calendar shape
       const normalized = events.map((e: any) => ({
         title: e.summary || e.title || "Untitled",
         start: e.start?.dateTime || e.start?.date || e.start || "",
@@ -121,11 +307,11 @@ async function executeTool(
         const res = await fetch(searchUrl);
         const data = await res.json();
         if (!data.results || data.results.length === 0) {
-          return { result: { results: [], query: input.query, error: "No search results found. Do NOT retry the search. Instead, provide your best answer based on your knowledge and suggest the user check online sources directly." }, status: `No results for "${input.query}"` };
+          return { result: { results: [], query: input.query, error: "No results found. Provide best answer from knowledge." }, status: `No results for "${input.query}"` };
         }
         return { result: data, status: `Searched for "${input.query}"` };
       } catch {
-        return { result: { results: [], query: input.query, error: "Search service unavailable. Do NOT retry. Provide your best answer from your knowledge." }, status: "Search failed" };
+        return { result: { results: [], query: input.query, error: "Search unavailable." }, status: "Search failed" };
       }
     }
     case "send_email": {
@@ -152,6 +338,7 @@ export async function POST(req: NextRequest) {
     googleRefreshToken,
     context,
     userProfile,
+    conversationId: clientConversationId,
   } = body;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -159,13 +346,34 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "No API key configured" }, { status: 500 });
   }
 
-  const enrichedContext = { ...context, userProfile: userProfile || {} };
-  const systemPrompt = buildSystemPrompt(enrichedContext);
-  const messages = [...(history || []), { role: "user", content: message }];
-  const model = selectModel(message);
-  const tokens = { access: googleAccessToken, refresh: googleRefreshToken };
+  // Get authenticated user (if Supabase configured)
+  const user = await getUserFromRequest();
 
-  // Create SSE stream
+  // Get Google tokens: prefer DB, fall back to request body
+  let tokens: { access: string; refresh: string } = { access: googleAccessToken || '', refresh: googleRefreshToken || '' };
+  if (user) {
+    const dbTokens = await getGoogleTokensFromDB(user.id);
+    if (dbTokens?.access) tokens = { access: dbTokens.access, refresh: dbTokens.refresh || '' };
+  }
+
+  // Load memories from DB
+  const memoryBlock = user ? await loadMemories(user.id) : '';
+
+  // Load conversation history from DB if available
+  let conversationId = clientConversationId;
+  let dbHistory: { role: string; content: string }[] = [];
+  if (user && conversationId) {
+    dbHistory = await loadConversationHistory(conversationId);
+  }
+
+  const enrichedContext = { ...context, userProfile: userProfile || {} };
+  const systemPrompt = buildSystemPrompt(enrichedContext, memoryBlock);
+
+  // Combine DB history with client history, preferring DB
+  const baseHistory = dbHistory.length > 0 ? dbHistory : (history || []);
+  const messages = [...baseHistory, { role: "user", content: message }];
+  const model = selectModel(message);
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -175,10 +383,13 @@ export async function POST(req: NextRequest) {
 
       try {
         let currentMessages = messages;
-        let maxIterations = 8; // Prevent infinite tool loops
+        let maxIterations = 8;
+        let totalTokensIn = 0;
+        let totalTokensOut = 0;
+        let finalSpoken = "";
+        let finalCards: any[] = [];
 
         while (maxIterations-- > 0) {
-          // Call Claude
           const response = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -202,27 +413,27 @@ export async function POST(req: NextRequest) {
           }
 
           const data = await response.json();
+          totalTokensIn += data.usage?.input_tokens || 0;
+          totalTokensOut += data.usage?.output_tokens || 0;
 
-          // Check if we got tool_use blocks
           const toolUses = (data.content || []).filter((b: any) => b.type === "tool_use");
           const textBlocks = (data.content || []).filter((b: any) => b.type === "text");
 
-          // If render_cards is called, that's our final output
           const renderCall = toolUses.find((t: any) => t.name === "render_cards");
           if (renderCall) {
             const { spoken, cards } = renderCall.input;
-            // Stream cards one by one
-            for (const card of cards || []) {
+            finalSpoken = spoken || "";
+            finalCards = cards || [];
+            for (const card of finalCards) {
               send({ type: "card", card });
             }
-            send({ type: "done", text: spoken || "" });
+            send({ type: "done", text: finalSpoken });
             break;
           }
 
-          // If no tool calls at all, generate a fallback response
           if (toolUses.length === 0) {
             const text = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
-            // Wrap as a content card
+            finalSpoken = text.slice(0, 200);
             send({
               type: "card",
               card: {
@@ -235,21 +446,14 @@ export async function POST(req: NextRequest) {
                 interactive: false,
               },
             });
-            send({ type: "done", text: text.slice(0, 200) });
+            send({ type: "done", text: finalSpoken });
             break;
           }
 
-          // Execute tool calls and feed results back
           const toolResults: any[] = [];
-
-          // Add assistant's response to messages
-          currentMessages = [
-            ...currentMessages,
-            { role: "assistant", content: data.content },
-          ];
+          currentMessages = [...currentMessages, { role: "assistant", content: data.content }];
 
           for (const tool of toolUses) {
-            // Stream status
             const statusMap: Record<string, string> = {
               fetch_emails: "Checking your emails...",
               fetch_calendar: "Looking at your calendar...",
@@ -262,7 +466,7 @@ export async function POST(req: NextRequest) {
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
 
             try {
-              const { result } = await executeTool(tool.name, tool.input, tokens);
+              const { result } = await executeTool(tool.name, tool.input, tokens, user?.id);
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tool.id,
@@ -278,11 +482,19 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Add tool results to messages for next iteration
-          currentMessages = [
-            ...currentMessages,
-            { role: "user", content: toolResults },
-          ];
+          currentMessages = [...currentMessages, { role: "user", content: toolResults }];
+        }
+
+        // ── Post-response async tasks (don't block the stream) ──
+        if (user) {
+          // Save messages to DB
+          if (conversationId) {
+            saveMessages(conversationId, message, finalSpoken, finalCards, model, totalTokensIn, totalTokensOut).catch(console.error);
+          }
+          // Track usage
+          trackUsageInDB(user.id, model, totalTokensIn, totalTokensOut, conversationId).catch(console.error);
+          // Extract memories (async, fire-and-forget)
+          extractAndSaveMemories(user.id, message, finalSpoken).catch(console.error);
         }
       } catch (err: any) {
         controller.enqueue(

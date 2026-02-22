@@ -12,6 +12,7 @@ import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
 import { trackUsage, estimateTokens } from "@/lib/usage";
+import { createClient } from "@/lib/supabase";
 
 const MAX_HISTORY = 40;
 let msgIdCounter = 0;
@@ -23,6 +24,7 @@ export default function DashboardPage() {
   const [statusText, setStatusText] = useState<string | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<AppMode>(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("whut_app_mode") as AppMode) || "chat";
@@ -58,6 +60,34 @@ export default function DashboardPage() {
       return () => clearTimeout(timer);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Conversation Persistence ──
+  useEffect(() => {
+    async function initConversation() {
+      try {
+        // Try to resume active conversation
+        const res = await fetch('/api/conversations?active=true');
+        const data = await res.json();
+        if (data.conversation) {
+          setConversationId(data.conversation.id);
+          // Load history from DB
+          const msgRes = await fetch(`/api/conversations/${data.conversation.id}/messages?limit=20`);
+          const msgData = await msgRes.json();
+          if (msgData.messages?.length) {
+            setChatHistory(msgData.messages.map((m: any) => ({ role: m.role, content: m.content })));
+          }
+        } else {
+          // Create new conversation
+          const createRes = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          const createData = await createRes.json();
+          if (createData.conversation) setConversationId(createData.conversation.id);
+        }
+      } catch {
+        // Supabase not configured — use client-side only
+      }
+    }
+    initConversation();
+  }, []);
 
   const tts = useTTS();
   const speechLoopRef = useRef(false);
@@ -114,6 +144,7 @@ export default function DashboardPage() {
           googleAccessToken: googleTokens.access_token || null,
           googleRefreshToken: googleTokens.refresh_token || null,
           userProfile,
+          conversationId,
           context: {
             integrations: connectedIntegrations,
             screen: { width: window.innerWidth, height: window.innerHeight },
