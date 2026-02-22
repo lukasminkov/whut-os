@@ -1,13 +1,16 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import VisualizationEngine from "@/components/VisualizationEngine";
 import type { VisualizationBlock } from "@/lib/visualization-tools";
 import AIOrb from "@/components/AIOrb";
 import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
+import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
+import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
 import {
   Area,
   AreaChart,
@@ -223,6 +226,8 @@ export default function DashboardPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<{ id: string; from: string; subject: string; snippet: string; date: string; unread: boolean; important: boolean } | null>(null);
+  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
   const googleData = useGoogleData();
 
   useEffect(() => {
@@ -233,6 +238,15 @@ export default function DashboardPage() {
   useEffect(() => {
     setFocusedPanel(null);
   }, [activeView]);
+
+  // Auto-show notification overlay when unread emails load
+  useEffect(() => {
+    if (googleData.emails.some(e => e.unread) && !activeView && !aiLoading) {
+      const timer = setTimeout(() => setShowNotifications(true), 2000);
+      const hideTimer = setTimeout(() => setShowNotifications(false), 8000);
+      return () => { clearTimeout(timer); clearTimeout(hideTimer); };
+    }
+  }, [googleData.emails.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -268,9 +282,11 @@ export default function DashboardPage() {
     const target = research ? null : resolveView(trimmed);
     if (target) {
       setAiLoading(false);
+      setLoadingAction(detectLoadingAction(trimmed));
       setTimeout(() => {
         setActiveView(target);
         setThinking(false);
+        setLoadingAction(null);
       }, 1000);
       return;
     }
@@ -278,6 +294,7 @@ export default function DashboardPage() {
     setAiLoading(true);
     setAiResponse("");
     setAiBlocks(null);
+    setLoadingAction(detectLoadingAction(trimmed));
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
@@ -329,8 +346,120 @@ export default function DashboardPage() {
       setThinking(false);
     } finally {
       setAiLoading(false);
+      setLoadingAction(null);
     }
   };
+
+  // ── Voice Input ──
+  const inputRef = useRef<HTMLInputElement>(null);
+  const handleVoiceFinal = useCallback((text: string) => {
+    setInput(text);
+    // Auto-submit after a short delay so user sees the transcript
+    setTimeout(() => {
+      setInput((current) => {
+        const t = current.trim();
+        if (t) {
+          // Trigger submit by simulating the flow
+          const trimmed = t;
+          const research = parseResearchTopic(trimmed);
+          setThinking(true);
+          setActiveView(null);
+          setAiResponse(null);
+          setAiBlocks(null);
+
+          const target = research ? null : resolveView(trimmed);
+          if (target) {
+            setAiLoading(false);
+            setTimeout(() => {
+              setActiveView(target);
+              setThinking(false);
+            }, 1000);
+          } else {
+            // Trigger AI call
+            setAiLoading(true);
+            setAiResponse("");
+            setAiBlocks(null);
+            fetch("/api/ai", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: trimmed,
+                history: chatHistory,
+                googleAccessToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.access_token || null; } catch { return null; } })(),
+                googleRefreshToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.refresh_token || null; } catch { return null; } })(),
+              }),
+            })
+              .then(async (response) => {
+                if (!response.ok) {
+                  const data = await response.json().catch(() => ({}));
+                  throw new Error(data?.error || "Request failed");
+                }
+                return response.json();
+              })
+              .then((result) => {
+                setThinking(false);
+                if (result.blocks && result.blocks.length > 0) {
+                  const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
+                  if (hasVisuals) {
+                    setAiBlocks(result.blocks);
+                    setAiResponse(null);
+                  } else {
+                    const textContent = result.blocks.filter((b: any) => b.type === "text").map((b: any) => b.content).join("\n\n");
+                    setAiResponse(textContent);
+                    setAiBlocks(null);
+                  }
+                  const textParts = result.blocks.filter((b: any) => b.type === "text").map((b: any) => b.content).join("\n\n");
+                  setChatHistory((prev) => [...prev, { role: "user", content: trimmed }, { role: "assistant", content: textParts || "[visualization response]" }]);
+                } else {
+                  setAiResponse("I couldn't generate a response. Please try again.");
+                }
+              })
+              .catch((error: any) => {
+                setAiResponse(`Error: ${error?.message || "Request failed"}`);
+                setThinking(false);
+              })
+              .finally(() => setAiLoading(false));
+          }
+        }
+        return "";
+      });
+    }, 400);
+  }, [chatHistory]);
+
+  const voice = useVoiceInput({
+    onTranscript: (text) => setInput(text),
+    onFinalTranscript: handleVoiceFinal,
+    autoSubmit: true,
+  });
+
+  // Push-to-talk: hold spacebar
+  useEffect(() => {
+    const isInputFocused = () => document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat && !isInputFocused()) {
+        e.preventDefault();
+        if (voice.state !== "listening") {
+          voice.startListening();
+        }
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isInputFocused()) {
+        e.preventDefault();
+        if (voice.state === "listening") {
+          voice.stopListening();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [voice.state, voice.startListening, voice.stopListening]);
 
   const handleFocus = (id: string) => {
     setFocusedPanel((prev) => (prev === id ? null : id));
@@ -356,13 +485,13 @@ export default function DashboardPage() {
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
           <div className="hidden md:block">
-            <AIOrb state={thinking ? "thinking" : "idle"} size={orbSize} />
+            <AIOrb state={voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={orbSize} />
           </div>
           <div className="md:hidden">
-            <AIOrb state={thinking ? "thinking" : "idle"} size={mobileOrbSize} />
+            <AIOrb state={voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
           </div>
           <AnimatePresence>
-            {!activeView && showGreeting && (
+            {!activeView && showGreeting && !loadingAction && (
               <motion.p
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -373,8 +502,19 @@ export default function DashboardPage() {
               </motion.p>
             )}
           </AnimatePresence>
+          {/* Contextual loading pill below orb */}
+          <div className="mt-4 flex justify-center">
+            <ContextualLoadingPill action={loadingAction} />
+          </div>
         </motion.div>
       </div>
+
+      {/* Notification overlay for emails */}
+      <NotificationOverlay
+        items={emailsToNotifications(googleData.emails)}
+        visible={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
 
       <AnimatePresence mode="wait">
         {/* ========== REVENUE ========== */}
@@ -1024,9 +1164,73 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
+      {/* Voice listening overlay */}
+      <AnimatePresence>
+        {voice.state === "listening" && (
+          <motion.div
+            className="absolute bottom-20 md:bottom-24 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+          >
+            <div className="flex items-center gap-[2px] h-6">
+              {Array.from({ length: 24 }).map((_, i) => (
+                <motion.div
+                  key={i}
+                  className="w-[2px] rounded-full bg-[#00d4aa]"
+                  animate={{ height: [3, 6 + Math.random() * 14, 3], opacity: [0.4, 0.9, 0.4] }}
+                  transition={{ duration: 0.3 + Math.random() * 0.4, repeat: Infinity, delay: i * 0.03 }}
+                />
+              ))}
+            </div>
+            <span className="text-[10px] uppercase tracking-[0.3em] text-white/40">Listening...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Voice error toast */}
+      <AnimatePresence>
+        {voice.state === "error" && voice.error && (
+          <motion.div
+            className="absolute bottom-20 md:bottom-24 left-1/2 -translate-x-1/2 z-50 glass-card-bright px-4 py-2 text-xs text-red-400"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+          >
+            {voice.error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input bar */}
-      <div className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[520px] -translate-x-1/2 items-center gap-2">
+      <div className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2">
+        {/* Mic button */}
+        <button
+          onClick={voice.toggleListening}
+          className={`relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 ${
+            voice.state === "listening"
+              ? "bg-red-500/20 border-red-500/50 text-red-400"
+              : voice.state === "error"
+              ? "bg-red-500/10 border-red-500/30 text-red-400/60"
+              : "glass-button text-white/40 hover:text-white/70"
+          }`}
+          title={voice.state === "listening" ? "Stop listening" : "Voice input (or hold Space)"}
+        >
+          {voice.state === "listening" && (
+            <motion.div
+              className="absolute inset-0 rounded-xl border-2 border-red-500/40"
+              animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0, 0.5] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            />
+          )}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+          </svg>
+        </button>
         <input
+          ref={inputRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
@@ -1035,8 +1239,10 @@ export default function DashboardPage() {
               handleSubmit();
             }
           }}
-          placeholder="Ask WHUT OS..."
-          className="glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40"
+          placeholder={voice.state === "listening" ? "Listening..." : "Ask WHUT OS..."}
+          className={`glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40 ${
+            voice.state === "listening" ? "placeholder:text-[#00d4aa]/60" : ""
+          }`}
         />
         <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.2em]">
           →

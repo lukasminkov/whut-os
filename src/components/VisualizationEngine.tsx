@@ -9,6 +9,7 @@ import StatCards from "./visualizations/StatCards";
 import ChartView from "./visualizations/ChartView";
 import TimelineView from "./visualizations/TimelineView";
 import TableView from "./visualizations/TableView";
+import EmailCompose from "./EmailCompose";
 
 interface Props {
   blocks: VisualizationBlock[];
@@ -43,6 +44,8 @@ export default function VisualizationEngine({ blocks }: Props) {
             return <TimelineView key={i} data={block.data} />;
           case "render_table":
             return <TableView key={i} data={block.data} />;
+          case "render_email_compose":
+            return <EmailCompose key={i} data={block.data} />;
           default:
             return null;
         }

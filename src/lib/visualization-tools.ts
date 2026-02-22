@@ -198,7 +198,8 @@ export type VisualizationBlock =
   | { type: "render_stats"; data: StatsData }
   | { type: "render_chart"; data: ChartData }
   | { type: "render_timeline"; data: TimelineData }
-  | { type: "render_table"; data: TableData };
+  | { type: "render_table"; data: TableData }
+  | { type: "render_email_compose"; data: any };
 
 export interface CardGridData {
   title: string;

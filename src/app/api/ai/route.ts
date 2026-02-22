@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { visualizationTools } from "@/lib/visualization-tools";
-import { sendEmail, refreshAccessToken } from "@/lib/google";
+// sendEmail is now handled client-side via the compose card
 
-const sendEmailTool = {
-  name: "send_email",
+const renderEmailComposeTool = {
+  name: "render_email_compose",
   description:
-    "Send an email on behalf of the user via their connected Gmail account. Use this when the user asks to send, write, or compose an email to someone.",
+    "Render an email compose card for the user to review and send. Use this when the user asks to send, write, or compose an email. The user will be able to edit the fields before sending.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -19,14 +19,14 @@ const sendEmailTool = {
       },
       body: {
         type: "string",
-        description: "Email body text",
+        description: "Email body text (plain text, can include line breaks with \\n)",
       },
     },
     required: ["to", "subject", "body"],
   },
 };
 
-const allTools = [...visualizationTools, sendEmailTool];
+const allTools = [...visualizationTools, renderEmailComposeTool];
 
 export async function POST(req: NextRequest) {
   const { message, history, googleAccessToken, googleRefreshToken } =
@@ -50,7 +50,7 @@ You have access to visualization tools that render beautiful interactive compone
 - render_chart: For data trends, analytics, time series
 - render_timeline: For chronological events, history, news recaps
 - render_table: For structured tabular data
-- send_email: Send an email via the user's connected Gmail. Use when user asks to send/write/compose an email.
+- render_email_compose: Render an email compose card for the user to review and edit before sending. Use when user asks to send/write/compose an email.
 
 IMPORTANT RULES:
 1. Use tools proactively — if someone asks "top 5 beaches", use render_cards, don't just type a list
@@ -60,7 +60,7 @@ IMPORTANT RULES:
 5. Provide real, accurate information — don't make up data
 6. For ratings, use a 1-5 scale
 7. You ARE the OS. Be direct, knowledgeable, and visually expressive.
-8. When the user asks to send an email, use the send_email tool. If they don't specify all fields, compose a professional email based on context.
+8. When the user asks to send/compose an email, use render_email_compose. Draft a professional email body. The user reviews and clicks Send.
 9. If the user hasn't connected Google, tell them to connect it via the Integrations page first.`;
 
   const messages = [...(history || []), { role: "user", content: message }];
@@ -91,103 +91,28 @@ IMPORTANT RULES:
       });
     }
 
-    let data = await response.json();
+    const data = await response.json();
 
-    // Check if Claude wants to use send_email — execute it server-side
-    const sendEmailBlock = (data.content || []).find(
-      (b: any) => b.type === "tool_use" && b.name === "send_email"
+    // Handle tool_use blocks that need a tool_result response for Claude
+    const toolUseBlocks = (data.content || []).filter(
+      (b: any) => b.type === "tool_use" && b.name !== "render_email_compose"
     );
 
-    if (sendEmailBlock) {
-      let toolResult: string;
+    let finalData = data;
 
-      if (!googleAccessToken) {
-        toolResult =
-          "ERROR: Google is not connected. The user needs to connect their Google account via the Integrations page first.";
-      } else {
-        try {
-          const { to, subject, body } = sendEmailBlock.input;
-          let token = googleAccessToken;
-
-          try {
-            await sendEmail(token, to, subject, body);
-            toolResult = `Email sent successfully to ${to} with subject "${subject}".`;
-          } catch (err: any) {
-            // Try token refresh on 401
-            if (
-              googleRefreshToken &&
-              err.message?.includes("401")
-            ) {
-              const refreshed = await refreshAccessToken(googleRefreshToken);
-              if (refreshed.access_token) {
-                token = refreshed.access_token;
-                await sendEmail(token, to, subject, body);
-                toolResult = `Email sent successfully to ${to} with subject "${subject}".`;
-              } else {
-                throw new Error("Token refresh failed");
-              }
-            } else {
-              throw err;
-            }
-          }
-        } catch (err: any) {
-          toolResult = `Failed to send email: ${err.message}`;
-        }
-      }
-
-      // Feed result back to Claude for final response
-      const followUpMessages = [
-        ...messages,
-        { role: "assistant", content: data.content },
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: sendEmailBlock.id,
-              content: toolResult,
-            },
-          ],
-        },
-      ];
-
-      response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 4096,
-          system: systemPrompt,
-          tools: allTools,
-          messages: followUpMessages,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        return new Response(JSON.stringify({ error: err }), {
-          status: response.status,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      data = await response.json();
+    // For non-visual tool calls, we need to provide tool results back to Claude
+    if (data.stop_reason === "tool_use" && toolUseBlocks.length > 0) {
+      // For visualization tools, just pass them through — no server execution needed
+      // Claude already generated the data we need
     }
 
     // Parse content blocks into visualization blocks
     const blocks: any[] = [];
-    for (const block of data.content || []) {
+    for (const block of finalData.content || []) {
       if (block.type === "text" && block.text) {
         blocks.push({ type: "text", content: block.text });
       } else if (block.type === "tool_use") {
-        // Only pass visualization tools to frontend, not send_email
-        if (block.name !== "send_email") {
-          blocks.push({ type: block.name, data: block.input });
-        }
+        blocks.push({ type: block.name, data: block.input });
       }
     }
 
