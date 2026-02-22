@@ -120,9 +120,12 @@ async function executeTool(
       try {
         const res = await fetch(searchUrl);
         const data = await res.json();
+        if (!data.results || data.results.length === 0) {
+          return { result: { results: [], query: input.query, error: "No search results found. Do NOT retry the search. Instead, provide your best answer based on your knowledge and suggest the user check online sources directly." }, status: `No results for "${input.query}"` };
+        }
         return { result: data, status: `Searched for "${input.query}"` };
       } catch {
-        return { result: { results: [] }, status: "Search failed" };
+        return { result: { results: [], query: input.query, error: "Search service unavailable. Do NOT retry. Provide your best answer from your knowledge." }, status: "Search failed" };
       }
     }
     case "send_email": {
