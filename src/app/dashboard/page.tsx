@@ -12,6 +12,7 @@ import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
 import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
 import ConversationTranscript, { type TranscriptMessage } from "@/components/ConversationTranscript";
+import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
 import {
   Area,
   AreaChart,
@@ -235,6 +236,7 @@ export default function DashboardPage() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const tts = useTTS();
   const googleData = useGoogleData();
 
   useEffect(() => {
@@ -349,6 +351,10 @@ export default function DashboardPage() {
           timestamp: Date.now(),
         }]);
 
+        // TTS: speak the text portion of the response
+        const speakable = extractSpeakableText(result.blocks);
+        if (speakable) tts.speak(speakable);
+
         setChatHistory(prev => [
           ...prev,
           { role: "user", content: trimmed },
@@ -386,8 +392,9 @@ export default function DashboardPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const handleVoiceFinal = useCallback((text: string) => {
     setInput("");
+    tts.stop(); // Stop any ongoing TTS when user submits voice
     sendToAI(text);
-  }, [sendToAI]);
+  }, [sendToAI, tts]);
 
   const voice = useVoiceInput({
     onTranscript: (text) => setInput(text),
@@ -454,10 +461,10 @@ export default function DashboardPage() {
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
           <div className="hidden md:block">
-            <AIOrb state={voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={orbSize} />
+            <AIOrb state={tts.isSpeaking ? "speaking" : voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={orbSize} />
           </div>
           <div className="md:hidden">
-            <AIOrb state={voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
+            <AIOrb state={tts.isSpeaking ? "speaking" : voice.state === "listening" ? "speaking" : thinking ? "thinking" : "idle"} size={mobileOrbSize} />
           </div>
           <AnimatePresence>
             {!activeView && !aiBlocks && showGreeting && !loadingAction && (
@@ -1130,6 +1137,26 @@ export default function DashboardPage() {
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <line x1="12" x2="12" y1="19" y2="22" />
               </svg>
+            </button>
+            {/* TTS mute/unmute toggle */}
+            <button
+              onClick={tts.toggleMute}
+              className="relative flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-xl border transition-all duration-200 flex-shrink-0 glass-button text-white/40 hover:text-white/70"
+              title={tts.isMuted ? "Unmute AI voice" : "Mute AI voice"}
+            >
+              {tts.isMuted ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              )}
             </button>
             <input
               ref={inputRef}
