@@ -149,7 +149,7 @@ export default function Sidebar() {
               <span className="text-white/10">|</span>
               <button
                 onClick={() => {
-                  localStorage.removeItem("whut_auth");
+                  localStorage.removeItem("whut-os-auth");
                   window.location.href = "/login";
                 }}
                 className="flex items-center gap-1.5 text-white/30 hover:text-red-400/70 transition-colors"

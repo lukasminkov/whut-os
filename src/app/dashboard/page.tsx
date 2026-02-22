@@ -360,7 +360,7 @@ export default function DashboardPage() {
         const gt = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}');
         if (gt.access_token) connectedIntegrations.push("gmail", "calendar", "drive");
       } catch {}
-      try { if (localStorage.getItem('whut_tiktok_tokens')) connectedIntegrations.push("tiktok"); } catch {}
+      try { if (localStorage.getItem('tiktok_access_token')) connectedIntegrations.push("tiktok"); } catch {}
 
       const response = await fetch("/api/ai", {
         method: "POST",

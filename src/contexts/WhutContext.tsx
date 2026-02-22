@@ -35,10 +35,10 @@ export function WhutProvider({ children }: { children: ReactNode }) {
       }
     } catch {}
     try {
-      if (localStorage.getItem("whut_tiktok_tokens")) integrations.push("tiktok");
+      if (localStorage.getItem("tiktok_access_token")) integrations.push("tiktok");
     } catch {}
     try {
-      if (localStorage.getItem("whut_shopify_tokens")) integrations.push("shopify");
+      // Shopify integration not yet implemented
     } catch {}
     return integrations;
   }, []);
