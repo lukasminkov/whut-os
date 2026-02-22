@@ -1,126 +1,147 @@
 import { NextRequest } from "next/server";
-import { renderSceneTool, wrapV1Block } from "@/lib/scene-types";
-import { sendEmail, refreshAccessToken } from "@/lib/google";
+import { AI_TOOLS, V3_SYSTEM_PROMPT } from "@/lib/tools";
 import {
-  SKILL_CORE_OS,
+  getRecentEmails,
+  getMessage,
+  getUpcomingEvents,
+  getRecentDriveFiles,
+  sendEmail,
+  archiveEmail,
+  refreshAccessToken,
+} from "@/lib/google";
+import {
   SKILL_ONBOARDING,
   INTEGRATION_SKILLS,
 } from "@/lib/skills";
 
-// Legacy tools kept for backward compat detection only
-const V1_TOOL_NAMES = [
-  "render_cards",
-  "render_comparison",
-  "render_stats",
-  "render_chart",
-  "render_timeline",
-  "render_table",
-  "render_email_compose",
-];
+// ── Helpers ──────────────────────────────────────────
 
-// ── Skill Loading ──────────────────────────────────────────────
-
-function loadSkills(connectedIntegrations: string[], isOnboarding: boolean): string {
-  const skills: string[] = [SKILL_CORE_OS];
-
-  if (isOnboarding) {
-    skills.push(SKILL_ONBOARDING);
-    return skills.join("\n\n---\n\n");
-  }
-
-  // Load integration skills based on connected integrations
-  for (const integration of connectedIntegrations) {
-    const skill = INTEGRATION_SKILLS[integration];
-    if (skill) skills.push(skill);
-  }
-
-  return skills.join("\n\n---\n\n");
-}
-
-// ── System Prompt Builder ──────────────────────────────────────
-
-interface UserProfile {
-  name?: string;
-  company?: string;
-  role?: string;
-  timezone?: string;
-  onboardingStep?: string; // "welcome" | "name" | "role" | "integrations" | "complete"
-}
-
-function buildSystemPrompt(context?: {
-  integrations?: string[];
-  screen?: { width: number; height: number };
-  time?: string;
-  timezone?: string;
-  userProfile?: UserProfile;
-}) {
+function buildSystemPrompt(context: any) {
   const integrations = context?.integrations || [];
-  const integrationsStr = integrations.length ? integrations.join(", ") : "none";
-  const screen = context?.screen
-    ? `${context.screen.width}x${context.screen.height}`
-    : "unknown";
-  const device =
-    context?.screen && context.screen.width < 768
-      ? "mobile"
-      : context?.screen && context.screen.width < 1024
-        ? "tablet"
-        : "desktop";
+  const profile = context?.userProfile || {};
+  const tz = context?.timezone || profile?.timezone || "UTC";
   const time = context?.time || new Date().toISOString();
-  const tz = context?.timezone || context?.userProfile?.timezone || "UTC";
+  const isOnboarding = !profile?.name || ["welcome", "name", "role", "integrations"].includes(profile?.onboardingStep);
 
-  const profile = context?.userProfile;
-  const isOnboarding = !profile?.name || profile?.onboardingStep === "welcome" || profile?.onboardingStep === "name" || profile?.onboardingStep === "role" || profile?.onboardingStep === "integrations";
+  let prompt = V3_SYSTEM_PROMPT;
 
-  // Load skills dynamically
-  const skillsContent = loadSkills(integrations, isOnboarding);
-
-  // Build user context block
-  let userContext = "";
-  if (profile?.name) {
-    userContext = `
-## User Profile
-- Name: ${profile.name}${profile.company ? `\n- Company: ${profile.company}` : ""}${profile.role ? `\n- Role: ${profile.role}` : ""}
-- Timezone: ${tz}
-- Connected integrations: ${integrationsStr}`;
-  } else {
-    userContext = `
-## User Profile
-- NEW USER — no profile yet. Begin onboarding.
-- Connected integrations: ${integrationsStr}`;
-  }
-
-  // Onboarding context
-  let onboardingContext = "";
+  // Add onboarding skill if needed
   if (isOnboarding) {
+    prompt += `\n\n${SKILL_ONBOARDING}`;
     const step = profile?.onboardingStep || "welcome";
-    onboardingContext = `
-## ONBOARDING MODE
-Current step: ${step}
-${profile?.name ? `Name collected: ${profile.name}` : "Name: not yet collected"}
-${profile?.company ? `Company: ${profile.company}` : ""}
-${profile?.role ? `Role: ${profile.role}` : ""}
-
-Follow the onboarding flow described in the Onboarding Skill above.
-- If step is "welcome": Greet them and ask their name
-- If step is "name": They just told you their name. Acknowledge it warmly, ask what they do (company/role)
-- If step is "role": They told you their role. Show available integrations as a card-grid
-- If step is "integrations": Thank them, complete onboarding with a welcoming scene`;
+    prompt += `\n\n## ONBOARDING MODE\nCurrent step: ${step}`;
+    if (profile?.name) prompt += `\nName: ${profile.name}`;
+    if (profile?.role) prompt += `\nRole: ${profile.role}`;
   }
 
-  return `${skillsContent}
+  // Add integration skills
+  for (const i of integrations) {
+    const skill = INTEGRATION_SKILLS[i];
+    if (skill) prompt += `\n\n${skill}`;
+  }
 
-${userContext}
+  // User context
+  prompt += `\n\n## Context\n- Time: ${time} (${tz})`;
+  if (profile?.name) prompt += `\n- User: ${profile.name}`;
+  if (integrations.length) prompt += `\n- Connected: ${integrations.join(", ")}`;
+  else prompt += `\n- No integrations connected`;
 
-## Context (this request)
-- Screen: ${screen} (${device})
-- Time: ${time} (${tz})
-${onboardingContext}
-
-## UI Theme
-Glass morphism dark theme. All components render with translucent glass cards, subtle borders, and backdrop blur.`;
+  return prompt;
 }
+
+// Smart model selection
+function selectModel(msg: string): string {
+  const lower = msg.toLowerCase();
+  const opusPatterns = [
+    /\b(analy[sz]e|compare|evaluate|research|investigate|explain)\b/,
+    /\b(strateg|plan|architect|design|brainstorm)\b/,
+    /\b(write|draft|compose).{0,20}(report|proposal|document)/,
+  ];
+  if (opusPatterns.some(p => p.test(lower)) || lower.length > 300) return "claude-opus-4-6";
+  return "claude-sonnet-4-6";
+}
+
+// Execute a tool call server-side
+async function executeTool(
+  name: string,
+  input: any,
+  tokens: { access?: string; refresh?: string },
+): Promise<{ result: any; status?: string }> {
+  let accessToken = tokens.access || "";
+
+  // Helper: refresh token on 401
+  const withRefresh = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
+    try {
+      return await fn(accessToken);
+    } catch (err: any) {
+      if (tokens.refresh && err.message?.includes("401")) {
+        const refreshed = await refreshAccessToken(tokens.refresh);
+        if (refreshed.access_token) {
+          accessToken = refreshed.access_token;
+          return await fn(accessToken);
+        }
+      }
+      throw err;
+    }
+  };
+
+  switch (name) {
+    case "fetch_emails": {
+      const emails = await withRefresh(t => getRecentEmails(t, input.maxResults || 10));
+      return { result: { emails }, status: "Checked your emails" };
+    }
+    case "get_email": {
+      const email = await withRefresh(t => getMessage(t, input.id));
+      return { result: email, status: "Reading email" };
+    }
+    case "fetch_calendar": {
+      const events = await withRefresh(t => getUpcomingEvents(t, input.maxResults || 10));
+      // Normalize Google Calendar shape
+      const normalized = events.map((e: any) => ({
+        title: e.summary || e.title || "Untitled",
+        start: e.start?.dateTime || e.start?.date || e.start || "",
+        end: e.end?.dateTime || e.end?.date || e.end || "",
+        location: e.location || "",
+      }));
+      return { result: { events: normalized }, status: "Checked your calendar" };
+    }
+    case "fetch_drive_files": {
+      const files = await withRefresh(t => getRecentDriveFiles(t, input.maxResults || 15));
+      const normalized = files.map((f: any) => ({
+        name: f.name,
+        type: f.mimeType || "",
+        modified: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : "",
+        link: f.webViewLink || "",
+      }));
+      return { result: { files: normalized }, status: "Checked your files" };
+    }
+    case "search_web": {
+      const searchUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai"}/api/search?q=${encodeURIComponent(input.query)}`;
+      try {
+        const res = await fetch(searchUrl);
+        const data = await res.json();
+        return { result: data, status: `Searched for "${input.query}"` };
+      } catch {
+        return { result: { results: [] }, status: "Search failed" };
+      }
+    }
+    case "send_email": {
+      const sent = await withRefresh(t => sendEmail(t, input.to, input.subject, input.body));
+      return { result: { success: true, messageId: sent.id }, status: `Sent email to ${input.to}` };
+    }
+    case "archive_email": {
+      await withRefresh(t => archiveEmail(t, input.id));
+      return { result: { success: true }, status: "Archived email" };
+    }
+    default:
+      return { result: { error: `Unknown tool: ${name}` } };
+  }
+}
+
+// ── Main Route (SSE Streaming) ──────────────────────────
 
 export async function POST(req: NextRequest) {
+  const body = await req.json();
   const {
     message,
     history,
@@ -128,156 +149,153 @@ export async function POST(req: NextRequest) {
     googleRefreshToken,
     context,
     userProfile,
-  } = await req.json();
+  } = body;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: "No API key configured" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "No API key configured" }, { status: 500 });
   }
 
-  // Merge userProfile into context
-  const enrichedContext = {
-    ...context,
-    userProfile: userProfile || {},
-  };
-
+  const enrichedContext = { ...context, userProfile: userProfile || {} };
   const systemPrompt = buildSystemPrompt(enrichedContext);
   const messages = [...(history || []), { role: "user", content: message }];
+  const model = selectModel(message);
+  const tokens = { access: googleAccessToken, refresh: googleRefreshToken };
 
-  // Smart routing: complex tasks → Opus 4.6, simple → Sonnet 4.6
-  const OPUS_MODEL = "claude-opus-4-6";
-  const SONNET_MODEL = "claude-sonnet-4-6";
+  // Create SSE stream
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: any) => {
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
 
-  function selectModel(msg: string): string {
-    const lower = msg.toLowerCase().trim();
-    // Opus for: analysis, strategy, long-form writing, multi-step reasoning, research, planning
-    const opusPatterns = [
-      /\b(analy[sz]e|analysis|compare|evaluate|assess|review)\b/,
-      /\b(strateg|plan|architect|design|brainstorm)\b/,
-      /\b(write|draft|compose).{0,20}(report|proposal|document|essay|article|brief)/,
-      /\b(research|investigate|deep.?dive|explore)\b/,
-      /\b(explain|break.?down|walk.?me.?through)\b.{15,}/,
-      /\b(summarize|summarise).{0,10}(all|everything|entire|whole)\b/,
-      /\b(debug|diagnose|troubleshoot|figure.?out)\b/,
-      /\b(create|build|generate).{0,20}(workflow|automation|system|pipeline)\b/,
-      /\bwhy\b.{20,}/,  // Long "why" questions suggest deeper reasoning
-    ];
-    if (opusPatterns.some(p => p.test(lower))) return OPUS_MODEL;
-    // Also route to Opus if message is long (complex request)
-    if (lower.length > 300) return OPUS_MODEL;
-    return SONNET_MODEL;
-  }
+      try {
+        let currentMessages = messages;
+        let maxIterations = 8; // Prevent infinite tool loops
 
-  const selectedModel = selectModel(message);
+        while (maxIterations-- > 0) {
+          // Call Claude
+          const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 4096,
+              system: systemPrompt,
+              tools: AI_TOOLS,
+              messages: currentMessages,
+            }),
+          });
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        max_tokens: 4096,
-        system: systemPrompt,
-        tools: [renderSceneTool],
-        messages,
-      }),
-    });
+          if (!response.ok) {
+            const err = await response.text();
+            send({ type: "error", error: err });
+            break;
+          }
 
-    if (!response.ok) {
-      const err = await response.text();
-      return new Response(JSON.stringify({ error: err }), {
-        status: response.status,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+          const data = await response.json();
 
-    const data = await response.json();
+          // Check if we got tool_use blocks
+          const toolUses = (data.content || []).filter((b: any) => b.type === "tool_use");
+          const textBlocks = (data.content || []).filter((b: any) => b.type === "text");
 
-    // Execute server-side actions from render_scene tool calls
-    const actionResults: Record<string, any> = {};
-    for (const block of data.content || []) {
-      if (block.type === "tool_use" && block.name === "render_scene") {
-        const actions = block.input?.actions || [];
-        for (const action of actions) {
-          if (action.type === "send_email" && action.params) {
-            const { to, subject, body } = action.params;
-            if (to && subject && body) {
-              let token = googleAccessToken;
-              try {
-                const result = await sendEmail(token, to, subject, body);
-                actionResults["send_email"] = { success: true, messageId: result.id };
-              } catch (err: any) {
-                if (googleRefreshToken && err.message?.includes("401")) {
-                  try {
-                    const refreshed = await refreshAccessToken(googleRefreshToken);
-                    if (refreshed.access_token) {
-                      const result = await sendEmail(refreshed.access_token, to, subject, body);
-                      actionResults["send_email"] = { success: true, messageId: result.id };
-                    }
-                  } catch {
-                    actionResults["send_email"] = { success: false, error: "Token refresh failed" };
-                  }
-                } else {
-                  actionResults["send_email"] = { success: false, error: err.message };
-                }
-              }
+          // If render_cards is called, that's our final output
+          const renderCall = toolUses.find((t: any) => t.name === "render_cards");
+          if (renderCall) {
+            const { spoken, cards } = renderCall.input;
+            // Stream cards one by one
+            for (const card of cards || []) {
+              send({ type: "card", card });
+            }
+            send({ type: "done", text: spoken || "" });
+            break;
+          }
+
+          // If no tool calls at all, generate a fallback response
+          if (toolUses.length === 0) {
+            const text = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
+            // Wrap as a content card
+            send({
+              type: "card",
+              card: {
+                id: "text-" + Date.now(),
+                type: "content",
+                title: "Response",
+                data: { text },
+                size: "medium",
+                priority: 1,
+                interactive: false,
+              },
+            });
+            send({ type: "done", text: text.slice(0, 200) });
+            break;
+          }
+
+          // Execute tool calls and feed results back
+          const toolResults: any[] = [];
+
+          // Add assistant's response to messages
+          currentMessages = [
+            ...currentMessages,
+            { role: "assistant", content: data.content },
+          ];
+
+          for (const tool of toolUses) {
+            // Stream status
+            const statusMap: Record<string, string> = {
+              fetch_emails: "Checking your emails...",
+              fetch_calendar: "Looking at your calendar...",
+              fetch_drive_files: "Browsing your files...",
+              search_web: `Searching for "${tool.input.query || ""}..."`,
+              send_email: "Sending email...",
+              get_email: "Reading email...",
+              archive_email: "Archiving...",
+            };
+            send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
+
+            try {
+              const { result } = await executeTool(tool.name, tool.input, tokens);
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: tool.id,
+                content: JSON.stringify(result),
+              });
+            } catch (err: any) {
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: tool.id,
+                content: JSON.stringify({ error: err.message || "Tool execution failed" }),
+                is_error: true,
+              });
             }
           }
+
+          // Add tool results to messages for next iteration
+          currentMessages = [
+            ...currentMessages,
+            { role: "user", content: toolResults },
+          ];
         }
+      } catch (err: any) {
+        controller.enqueue(
+          encoder.encode(JSON.stringify({ type: "error", error: err.message }) + "\n")
+        );
+      } finally {
+        controller.close();
       }
-    }
+    },
+  });
 
-    // Parse content blocks into response format
-    const blocks: any[] = [];
-    for (const block of data.content || []) {
-      if (block.type === "text" && block.text) {
-        blocks.push({ type: "text", content: block.text });
-      } else if (block.type === "tool_use") {
-        if (block.name === "render_scene") {
-          blocks.push({
-            type: "render_scene",
-            data: block.input,
-            actionResults,
-          });
-        } else if (V1_TOOL_NAMES.includes(block.name)) {
-          const sceneNode = wrapV1Block(block.name, block.input);
-          blocks.push({
-            type: "render_scene",
-            data: {
-              layout: { type: "stack", gap: 12, children: [sceneNode] },
-            },
-          });
-          blocks.push({ type: block.name, data: block.input });
-        }
-      }
-    }
-
-    const sceneBlock = blocks.find((b: any) => b.type === "render_scene");
-    const scene = sceneBlock ? sceneBlock.data : undefined;
-
-    // Pass Claude's token usage back to the client for usage tracking
-    const usage = data.usage
-      ? {
-          input_tokens: data.usage.input_tokens ?? 0,
-          output_tokens: data.usage.output_tokens ?? 0,
-          model: selectedModel,
-        }
-      : undefined;
-
-    return new Response(JSON.stringify({ blocks, scene, usage }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
