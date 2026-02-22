@@ -147,6 +147,32 @@ export async function POST(req: NextRequest) {
   const systemPrompt = buildSystemPrompt(enrichedContext);
   const messages = [...(history || []), { role: "user", content: message }];
 
+  // Smart routing: complex tasks → Opus 4.6, simple → Sonnet 4.6
+  const OPUS_MODEL = "claude-opus-4-6-20250627";
+  const SONNET_MODEL = "claude-sonnet-4-6-20250627";
+
+  function selectModel(msg: string): string {
+    const lower = msg.toLowerCase().trim();
+    // Opus for: analysis, strategy, long-form writing, multi-step reasoning, research, planning
+    const opusPatterns = [
+      /\b(analy[sz]e|analysis|compare|evaluate|assess|review)\b/,
+      /\b(strateg|plan|architect|design|brainstorm)\b/,
+      /\b(write|draft|compose).{0,20}(report|proposal|document|essay|article|brief)/,
+      /\b(research|investigate|deep.?dive|explore)\b/,
+      /\b(explain|break.?down|walk.?me.?through)\b.{15,}/,
+      /\b(summarize|summarise).{0,10}(all|everything|entire|whole)\b/,
+      /\b(debug|diagnose|troubleshoot|figure.?out)\b/,
+      /\b(create|build|generate).{0,20}(workflow|automation|system|pipeline)\b/,
+      /\bwhy\b.{20,}/,  // Long "why" questions suggest deeper reasoning
+    ];
+    if (opusPatterns.some(p => p.test(lower))) return OPUS_MODEL;
+    // Also route to Opus if message is long (complex request)
+    if (lower.length > 300) return OPUS_MODEL;
+    return SONNET_MODEL;
+  }
+
+  const selectedModel = selectModel(message);
+
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -156,7 +182,7 @@ export async function POST(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6-20250627",
+        model: selectedModel,
         max_tokens: 4096,
         system: systemPrompt,
         tools: [renderSceneTool],
@@ -241,7 +267,7 @@ export async function POST(req: NextRequest) {
       ? {
           input_tokens: data.usage.input_tokens ?? 0,
           output_tokens: data.usage.output_tokens ?? 0,
-          model: "claude-sonnet-4-6-20250627",
+          model: selectedModel,
         }
       : undefined;
 

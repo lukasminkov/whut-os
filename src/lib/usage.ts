@@ -37,6 +37,7 @@ export interface UsageStats {
 // Pricing per million tokens (USD)
 const MODEL_PRICING: Record<string, { inputPerM: number; outputPerM: number }> = {
   "claude-sonnet-4-6-20250627": { inputPerM: 3, outputPerM: 15 },
+  "claude-opus-4-6-20250627": { inputPerM: 15, outputPerM: 75 },
   "claude-opus-4": { inputPerM: 15, outputPerM: 75 },
   // fallback for unknown models — use sonnet pricing
   default: { inputPerM: 3, outputPerM: 15 },
