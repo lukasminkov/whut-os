@@ -3,6 +3,7 @@
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/calendar.readonly',
   'openid',
@@ -141,6 +142,84 @@ export async function sendEmail(accessToken: string, to: string, subject: string
     body: JSON.stringify({ raw: encoded }),
   });
   if (!res.ok) throw new Error(`Gmail send failed ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// Gmail - Get single message with full body
+export async function getMessage(accessToken: string, messageId: string) {
+  const msg = await gfetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
+    accessToken
+  );
+  const headers = msg.payload?.headers || [];
+  const get = (name: string) =>
+    headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+  // Extract body from MIME parts
+  function extractBody(payload: any): { text: string; html: string } {
+    let text = '';
+    let html = '';
+
+    if (payload.body?.data) {
+      const decoded = Buffer.from(payload.body.data, 'base64url').toString('utf-8');
+      if (payload.mimeType === 'text/plain') text = decoded;
+      else if (payload.mimeType === 'text/html') html = decoded;
+    }
+
+    if (payload.parts) {
+      for (const part of payload.parts) {
+        const sub = extractBody(part);
+        if (sub.text) text = text || sub.text;
+        if (sub.html) html = html || sub.html;
+      }
+    }
+
+    return { text, html };
+  }
+
+  const { text, html } = extractBody(msg.payload);
+
+  return {
+    id: msg.id,
+    threadId: msg.threadId,
+    from: get('From'),
+    to: get('To'),
+    subject: get('Subject'),
+    date: get('Date'),
+    body: html || text || msg.snippet || '',
+    bodyType: html ? 'html' : 'text',
+    snippet: msg.snippet,
+    labels: msg.labelIds || [],
+  };
+}
+
+// Gmail - Archive (remove INBOX label)
+export async function archiveEmail(accessToken: string, messageId: string) {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['INBOX'] }),
+    }
+  );
+  if (!res.ok) throw new Error(`Gmail archive failed ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// Gmail - Trash
+export async function trashEmail(accessToken: string, messageId: string) {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/trash`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  if (!res.ok) throw new Error(`Gmail trash failed ${res.status}: ${await res.text()}`);
   return res.json();
 }
 

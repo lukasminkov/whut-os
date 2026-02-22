@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getRecentEmails,
+  getMessage,
+  archiveEmail,
+  trashEmail,
   getRecentDriveFiles,
   getUpcomingEvents,
   refreshAccessToken,
@@ -10,6 +13,9 @@ import {
 const METHODS: Record<string, Record<string, (token: string, params?: any) => Promise<any>>> = {
   gmail: {
     getRecentEmails: (token, params) => getRecentEmails(token, params?.maxResults),
+    getMessage: (token, params) => getMessage(token, params?.id),
+    archiveEmail: (token, params) => archiveEmail(token, params?.id),
+    trashEmail: (token, params) => trashEmail(token, params?.id),
   },
   calendar: {
     getUpcomingEvents: (token, params) => getUpcomingEvents(token, params?.maxResults),
