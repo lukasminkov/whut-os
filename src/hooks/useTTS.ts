@@ -10,88 +10,155 @@ export function useTTS() {
     }
     return false;
   });
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const onEndRef = useRef<(() => void) | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
+  // Cleanup on unmount
   useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-
-    const pickVoice = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (!voices.length) return;
-
-      const preferred = [
-        "Samantha", "Karen", "Daniel", "Google UK English Female",
-        "Google UK English Male", "Google US English", "Moira", "Fiona",
-        "Alex", "Tessa", "Rishi",
-      ];
-
-      for (const name of preferred) {
-        const v = voices.find((v) => v.name.includes(name) && v.lang.startsWith("en"));
-        if (v) { voiceRef.current = v; return; }
+    return () => {
+      abortRef.current?.abort();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
       }
-
-      const en = voices.find((v) => v.lang.startsWith("en"));
-      if (en) voiceRef.current = en;
     };
-
-    pickVoice();
-    window.speechSynthesis.onvoiceschanged = pickVoice;
-    return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, []);
 
-  const speak = useCallback((text: string, onEnd?: () => void) => {
-    if (!text || isMuted || typeof window === "undefined" || !window.speechSynthesis) {
-      // If muted, still fire onEnd so the speech loop continues
-      onEnd?.();
-      return;
+  const stopAudio = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
     }
+    setIsSpeaking(false);
+  }, []);
 
-    window.speechSynthesis.cancel();
-    onEndRef.current = onEnd || null;
+  // Web Speech API fallback
+  const speakFallback = useCallback(
+    (text: string, onEnd?: () => void) => {
+      if (typeof window === "undefined" || !window.speechSynthesis) {
+        onEnd?.();
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.volume = 0.9;
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (voiceRef.current) utterance.voice = voiceRef.current;
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    utterance.volume = 0.9;
+      // Try to pick an English voice
+      const voices = window.speechSynthesis.getVoices();
+      const en = voices.find((v) => v.lang.startsWith("en"));
+      if (en) utterance.voice = en;
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      onEndRef.current?.();
-      onEndRef.current = null;
-    };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      onEndRef.current?.();
-      onEndRef.current = null;
-    };
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        onEnd?.();
+      };
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+        onEnd?.();
+      };
+      window.speechSynthesis.speak(utterance);
+    },
+    []
+  );
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [isMuted]);
+  const speak = useCallback(
+    (text: string, onEnd?: () => void) => {
+      if (!text || isMuted) {
+        onEnd?.();
+        return;
+      }
+
+      // Stop any current playback
+      stopAudio();
+      window.speechSynthesis?.cancel();
+      onEndRef.current = onEnd || null;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`TTS API ${res.status}`);
+          return res.blob();
+        })
+        .then((blob) => {
+          if (controller.signal.aborted) return;
+
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audioRef.current = audio;
+
+          audio.onplay = () => setIsSpeaking(true);
+          audio.onended = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            onEndRef.current?.();
+            onEndRef.current = null;
+          };
+          audio.onerror = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            // Fallback to Web Speech
+            speakFallback(text, () => {
+              onEndRef.current?.();
+              onEndRef.current = null;
+            });
+          };
+
+          audio.play().catch(() => {
+            // Autoplay blocked or error — fallback
+            URL.revokeObjectURL(url);
+            speakFallback(text, () => {
+              onEndRef.current?.();
+              onEndRef.current = null;
+            });
+          });
+        })
+        .catch((err) => {
+          if (err.name === "AbortError") return;
+          console.warn("ElevenLabs TTS failed, falling back:", err);
+          speakFallback(text, () => {
+            onEndRef.current?.();
+            onEndRef.current = null;
+          });
+        });
+    },
+    [isMuted, stopAudio, speakFallback]
+  );
 
   const stop = useCallback(() => {
+    stopAudio();
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
     onEndRef.current = null;
-    setIsSpeaking(false);
-  }, []);
+  }, [stopAudio]);
 
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => {
       const next = !prev;
       localStorage.setItem("whut_tts_muted", String(next));
       if (next) {
+        stopAudio();
         window.speechSynthesis?.cancel();
-        setIsSpeaking(false);
       }
       return next;
     });
-  }, []);
+  }, [stopAudio]);
 
   return { isSpeaking, isMuted, speak, stop, toggleMute };
 }
