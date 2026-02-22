@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect } from "react";
 
 /* Stacked area chart SVG */
@@ -54,22 +54,15 @@ function AreaChart({ visible }: { visible: boolean }) {
           <stop offset="100%" stopColor="#00d4aa" stopOpacity="0.02" />
         </linearGradient>
       </defs>
-
-      {/* Grid lines */}
       {[0.25, 0.5, 0.75].map(pct => (
         <line key={pct} x1="40" y1={(h - 20) * (1 - pct)} x2={w - 10} y2={(h - 20) * (1 - pct)} stroke="white" strokeOpacity="0.04" />
       ))}
-
-      {/* Y axis labels */}
       {[0, 3000, 6000, 9000, 12000].map((v, i) => (
         <text key={v} x="35" y={h - 20 - (i / 4) * (h - 30) + 3} fill="white" fillOpacity="0.2" fontSize="7" textAnchor="end">{v > 0 ? `${v / 1000}K` : "0"}</text>
       ))}
-
-      {/* X axis labels */}
       {[1, 5, 10, 15, 20, 25, 30].map(d => (
         <text key={d} x={40 + ((d - 1) / 29) * (w - 50)} y={h - 4} fill="white" fillOpacity="0.2" fontSize="7" textAnchor="middle">{d}</text>
       ))}
-
       {visible && (
         <>
           <motion.path d={toPath(tiktok, null)} fill="url(#tg)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }} />
@@ -84,41 +77,86 @@ function AreaChart({ visible }: { visible: boolean }) {
   );
 }
 
-/* Typing animation hook */
-function useTypingAnimation(text: string, startDelay: number, enabled: boolean) {
-  const [displayed, setDisplayed] = useState("");
+/* Live voice waveform */
+function LiveWaveform({ active }: { active: boolean }) {
+  return (
+    <div className="flex items-center gap-[2px] h-5">
+      {Array.from({ length: 20 }).map((_, i) => (
+        <motion.div
+          key={i}
+          className="w-[2px] rounded-full bg-[#00d4aa]"
+          animate={active
+            ? { height: [3, 6 + Math.random() * 14, 3], opacity: [0.4, 0.9, 0.4] }
+            : { height: 3, opacity: 0.15 }
+          }
+          transition={active
+            ? { duration: 0.3 + Math.random() * 0.4, repeat: Infinity, delay: i * 0.03 }
+            : { duration: 0.3 }
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/* Word-by-word transcript */
+function useTranscript(words: string[], startDelay: number, enabled: boolean) {
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [speaking, setSpeaking] = useState(false);
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
-    let i = 0;
-    const startTimeout = setTimeout(() => {
+    const startTimer = setTimeout(() => {
+      setSpeaking(true);
+      let i = 0;
       const interval = setInterval(() => {
         i++;
-        setDisplayed(text.slice(0, i));
-        if (i >= text.length) {
+        setVisibleCount(i);
+        if (i >= words.length) {
           clearInterval(interval);
-          setDone(true);
+          setTimeout(() => {
+            setSpeaking(false);
+            setDone(true);
+          }, 400);
         }
-      }, 40);
+      }, 180);
       return () => clearInterval(interval);
     }, startDelay);
-    return () => clearTimeout(startTimeout);
-  }, [text, startDelay, enabled]);
+    return () => clearTimeout(startTimer);
+  }, [words.length, startDelay, enabled]);
 
-  return { displayed, done };
+  return { visibleCount, speaking, done };
 }
+
+/* Animation phases */
+type Phase = "idle" | "listening" | "processing" | "rendered";
 
 export default function HUDMock() {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, amount: 0.3 });
-  
-  const query = "Show me this month's revenue breakdown";
-  const { displayed: typedText, done: typingDone } = useTypingAnimation(query, 800, isInView);
+  const [phase, setPhase] = useState<Phase>("idle");
 
-  // Stagger card appearances after typing finishes
-  const cardDelay = typingDone ? 0 : 99;
-  const baseDelay = 0.3;
+  const words = ["Show", "me", "this", "month's", "revenue", "breakdown"];
+  const { visibleCount, speaking, done: transcriptDone } = useTranscript(words, 600, isInView);
+
+  useEffect(() => {
+    if (!isInView) return;
+    // idle → listening after small delay
+    const t1 = setTimeout(() => setPhase("listening"), 400);
+    return () => clearTimeout(t1);
+  }, [isInView]);
+
+  useEffect(() => {
+    if (transcriptDone) {
+      setPhase("processing");
+      const t = setTimeout(() => setPhase("rendered"), 600);
+      return () => clearTimeout(t);
+    }
+  }, [transcriptDone]);
+
+  const cardsVisible = phase === "rendered";
+  const baseDelay = 0.15;
 
   return (
     <div ref={ref}>
@@ -130,7 +168,7 @@ export default function HUDMock() {
         className="relative w-full max-w-5xl mx-auto"
       >
         <div className="rounded-2xl border border-white/[0.08] bg-[#0b0b18] overflow-hidden shadow-2xl shadow-black/60">
-          <div className="flex" style={{ minHeight: 520 }}>
+          <div className="flex" style={{ minHeight: 540 }}>
             {/* ── Sidebar ── */}
             <div className="w-40 border-r border-white/[0.06] flex flex-col justify-between py-6 px-5 flex-shrink-0">
               <div className="space-y-6">
@@ -173,14 +211,71 @@ export default function HUDMock() {
             </div>
 
             {/* ── Main Canvas ── */}
-            <div className="flex-1 flex flex-col p-6">
-              {/* Card grid area */}
-              <div className="flex-1 grid grid-cols-3 gap-4 auto-rows-min content-start">
-                
-                {/* Row 1: Total Revenue (spans 2) + Channel Breakdown */}
+            <div className="flex-1 flex flex-col p-6 relative">
+
+              {/* Voice Transcript Overlay — centered on canvas before cards appear */}
+              <AnimatePresence>
+                {!cardsVisible && phase !== "idle" && (
+                  <motion.div
+                    className="absolute inset-0 flex flex-col items-center justify-center z-20"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.3 } }}
+                  >
+                    {/* Waveform */}
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="mb-5"
+                    >
+                      <LiveWaveform active={speaking} />
+                    </motion.div>
+
+                    {/* Live transcript words */}
+                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-sm px-4">
+                      {words.map((word, i) => (
+                        <motion.span
+                          key={i}
+                          className="text-xl font-light"
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={i < visibleCount
+                            ? { opacity: 1, y: 0, color: "rgba(255,255,255,0.85)" }
+                            : { opacity: 0, y: 5 }
+                          }
+                          transition={{ duration: 0.15 }}
+                        >
+                          {word}
+                        </motion.span>
+                      ))}
+                    </div>
+
+                    {/* Processing indicator */}
+                    {phase === "processing" && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="mt-6 flex items-center gap-2"
+                      >
+                        <motion.div
+                          className="w-1.5 h-1.5 rounded-full bg-[#00d4aa]"
+                          animate={{ opacity: [0.3, 1, 0.3] }}
+                          transition={{ duration: 0.6, repeat: Infinity }}
+                        />
+                        <span className="text-[11px] text-white/30 uppercase tracking-widest">Visualizing</span>
+                      </motion.div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Card grid — appears after voice input */}
+              <div className={`flex-1 grid grid-cols-3 gap-4 auto-rows-min content-start transition-opacity duration-500 ${cardsVisible ? "opacity-100" : "opacity-0"}`}>
+
+                {/* Row 1: Total Revenue (2 col) + Channel Breakdown (1 col) */}
                 <motion.div
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={typingDone ? { opacity: 1, y: 0, scale: 1 } : {}}
+                  animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.5, delay: baseDelay }}
                   className="col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
                 >
@@ -195,8 +290,8 @@ export default function HUDMock() {
 
                 <motion.div
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={typingDone ? { opacity: 1, y: 0, scale: 1 } : {}}
-                  transition={{ duration: 0.5, delay: baseDelay + 0.15 }}
+                  animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
+                  transition={{ duration: 0.5, delay: baseDelay + 0.12 }}
                   className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition">×</button>
@@ -214,22 +309,22 @@ export default function HUDMock() {
                   </div>
                 </motion.div>
 
-                {/* Row 2: Chart (spans 2) + Top Product */}
+                {/* Row 2: Chart (2 col) + Top Product (1 col) */}
                 <motion.div
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={typingDone ? { opacity: 1, y: 0, scale: 1 } : {}}
-                  transition={{ duration: 0.6, delay: baseDelay + 0.35 }}
+                  animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
+                  transition={{ duration: 0.6, delay: baseDelay + 0.28 }}
                   className="col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition z-10">×</button>
                   <div className="text-[9px] uppercase tracking-[0.3em] text-white/25 mb-3">Revenue (Last 30 Days)</div>
-                  <AreaChart visible={typingDone} />
+                  <AreaChart visible={cardsVisible} />
                 </motion.div>
 
                 <motion.div
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={typingDone ? { opacity: 1, y: 0, scale: 1 } : {}}
-                  transition={{ duration: 0.5, delay: baseDelay + 0.5 }}
+                  animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
+                  transition={{ duration: 0.5, delay: baseDelay + 0.4 }}
                   className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative flex flex-col justify-center"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition">×</button>
@@ -237,39 +332,6 @@ export default function HUDMock() {
                   <div className="text-[15px] text-white font-medium mb-0.5">Glow Serum Kit</div>
                   <div className="text-white/50 text-[12px]">$18.4K this month</div>
                 </motion.div>
-              </div>
-
-              {/* ── Input Bar ── */}
-              <div className="flex items-center gap-3 mt-5 pt-4 border-t border-white/[0.04]">
-                <div className="flex-1 flex items-center rounded-xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 min-h-[44px]">
-                  {typedText ? (
-                    <span className="text-[13px] text-white/70">{typedText}
-                      {!typingDone && (
-                        <motion.span
-                          className="inline-block w-[2px] h-4 bg-[#00d4aa] ml-0.5 align-middle"
-                          animate={{ opacity: [1, 0, 1] }}
-                          transition={{ duration: 0.8, repeat: Infinity }}
-                        />
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-[13px] text-white/20">Ask WHUT OS...</span>
-                  )}
-                </div>
-                <button className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center flex-shrink-0">
-                  <span className="text-white/30 text-base">🎙</span>
-                </button>
-                <motion.button
-                  className="px-5 py-3 rounded-xl text-[11px] uppercase tracking-[0.2em] font-semibold flex-shrink-0"
-                  animate={typingDone
-                    ? { backgroundColor: "rgba(0,212,170,0.25)", borderColor: "rgba(0,212,170,0.4)", color: "rgba(0,212,170,0.9)" }
-                    : { backgroundColor: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.25)" }
-                  }
-                  style={{ border: "1px solid" }}
-                  transition={{ duration: 0.3 }}
-                >
-                  Send
-                </motion.button>
               </div>
             </div>
           </div>
