@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { visualizationTools } from "@/lib/visualization-tools";
 
 export async function POST(req: NextRequest) {
   const { message, history } = await req.json();
@@ -11,18 +12,27 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const systemPrompt = `You are WHUT OS — a next-generation AI operating system. You are the interface between the user and everything they do.
-You help people manage their work, life, and tools through a single intelligent interface. You connect to email, calendars, analytics, documents, and any service they use.
+  const systemPrompt = `You are WHUT OS — a next-generation AI operating system with a rich visual interface.
 
-When the user asks you to research something, provide a thorough summary with key findings. When asked about revenue, campaigns, creators, or finance, provide insightful analysis using the connected data sources.
+You have access to visualization tools that render beautiful interactive components. ALWAYS use the appropriate tool when the user's query would benefit from visual presentation:
 
-Keep responses concise but informative. Use markdown formatting. Be direct and useful — you are an OS, not a chatbot.`;
+- render_cards: For lists of items (destinations, restaurants, products, people, movies, etc.)
+- render_comparison: For comparing two or more items side by side
+- render_stats: For displaying metrics, KPIs, or numerical summaries
+- render_chart: For data trends, analytics, time series
+- render_timeline: For chronological events, history, news recaps
+- render_table: For structured tabular data
 
-  // Build conversation messages from history
-  const messages = [
-    ...(history || []),
-    { role: "user", content: message },
-  ];
+IMPORTANT RULES:
+1. Use tools proactively — if someone asks "top 5 beaches", use render_cards, don't just type a list
+2. You can combine text AND tool calls in the same response — provide brief context text PLUS the visualization
+3. Keep text portions concise — the visuals do the heavy lifting
+4. For imageQuery fields, use descriptive search terms that would find good photos (e.g., "Clearwater Beach Florida sunset" not just "beach")
+5. Provide real, accurate information — don't make up data
+6. For ratings, use a 1-5 scale
+7. You ARE the OS. Be direct, knowledgeable, and visually expressive.`;
+
+  const messages = [...(history || []), { role: "user", content: message }];
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -34,9 +44,9 @@ Keep responses concise but informative. Use markdown formatting. Be direct and u
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        stream: true,
+        max_tokens: 4096,
         system: systemPrompt,
+        tools: visualizationTools,
         messages,
       }),
     });
@@ -49,47 +59,20 @@ Keep responses concise but informative. Use markdown formatting. Be direct and u
       });
     }
 
-    // Stream the response
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = response.body!.getReader();
-        let buffer = "";
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") continue;
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`));
-                  }
-                } catch {}
-              }
-            }
-          }
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (e) {
-          controller.error(e);
-        }
-      },
-    });
+    const data = await response.json();
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+    // Parse content blocks into visualization blocks
+    const blocks: any[] = [];
+    for (const block of data.content || []) {
+      if (block.type === "text" && block.text) {
+        blocks.push({ type: "text", content: block.text });
+      } else if (block.type === "tool_use") {
+        blocks.push({ type: block.name, data: block.input });
+      }
+    }
+
+    return new Response(JSON.stringify({ blocks }), {
+      headers: { "Content-Type": "application/json" },
     });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {

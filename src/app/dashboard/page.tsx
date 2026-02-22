@@ -4,6 +4,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import VisualizationEngine from "@/components/VisualizationEngine";
+import type { VisualizationBlock } from "@/lib/visualization-tools";
 import AIOrb from "@/components/AIOrb";
 import {
   Area,
@@ -212,6 +214,7 @@ export default function DashboardPage() {
   const [showGreeting, setShowGreeting] = useState(true);
   const [focusedPanel, setFocusedPanel] = useState<string | null>(null);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiBlocks, setAiBlocks] = useState<VisualizationBlock[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
 
@@ -251,6 +254,7 @@ export default function DashboardPage() {
     setThinking(true);
     setActiveView(null);
     setAiResponse(null);
+    setAiBlocks(null);
 
     const target = research ? null : resolveView(trimmed);
     if (target) {
@@ -264,6 +268,7 @@ export default function DashboardPage() {
 
     setAiLoading(true);
     setAiResponse("");
+    setAiBlocks(null);
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
@@ -274,36 +279,37 @@ export default function DashboardPage() {
         const data = await response.json().catch(() => ({}));
         throw new Error(data?.error || "Request failed");
       }
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-      let buffer = "";
+      const result = await response.json();
       setThinking(false);
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.text) {
-                fullText += parsed.text;
-                setAiResponse(fullText);
-              }
-            } catch {}
-          }
+      
+      if (result.blocks && result.blocks.length > 0) {
+        // Check if we have any visualization blocks (non-text)
+        const hasVisuals = result.blocks.some((b: any) => b.type !== "text");
+        if (hasVisuals) {
+          setAiBlocks(result.blocks);
+          setAiResponse(null);
+        } else {
+          // Text-only response
+          const textContent = result.blocks
+            .filter((b: any) => b.type === "text")
+            .map((b: any) => b.content)
+            .join("\n\n");
+          setAiResponse(textContent);
+          setAiBlocks(null);
         }
+        // Build text summary for chat history
+        const textParts = result.blocks
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.content)
+          .join("\n\n");
+        setChatHistory(prev => [
+          ...prev,
+          { role: "user", content: trimmed },
+          { role: "assistant", content: textParts || "[visualization response]" },
+        ]);
+      } else {
+        setAiResponse("I couldn't generate a response. Please try again.");
       }
-      setChatHistory(prev => [
-        ...prev,
-        { role: "user", content: trimmed },
-        { role: "assistant", content: fullText },
-      ]);
     } catch (error: any) {
       setAiResponse(`Error: ${error?.message || "Request failed"}`);
       setThinking(false);
@@ -816,8 +822,8 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ========== AI RESPONSE ========== */}
-        {(aiResponse !== null) && (
+        {/* ========== AI RESPONSE (Text only) ========== */}
+        {(aiResponse !== null && !aiBlocks) && (
           <motion.div key="ai-response" className="absolute inset-0 z-30">
             {/* Mobile AI response */}
             <div className="md:hidden absolute inset-0 flex items-start justify-center pt-16 pb-24 px-4 overflow-y-auto">
@@ -875,6 +881,70 @@ export default function DashboardPage() {
                 )}
               </div>
             </Panel>
+          </motion.div>
+        )}
+
+        {/* ========== AI VISUALIZATION RESPONSE ========== */}
+        {aiBlocks && (
+          <motion.div key="ai-viz" className="absolute inset-0 z-30">
+            {/* Mobile */}
+            <div className="md:hidden absolute inset-0 pt-4 pb-24 px-4 overflow-y-auto">
+              <button
+                onClick={() => { setAiBlocks(null); setAiResponse(null); setAiLoading(false); }}
+                className="sticky top-0 z-10 mb-3 flex items-center gap-2 text-xs text-white/50 hover:text-white/80"
+              >
+                ← Back
+              </button>
+              {aiLoading ? (
+                <div className="flex items-center justify-center h-40">
+                  <motion.span className="text-white/40 text-sm" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Materializing...</motion.span>
+                </div>
+              ) : (
+                <VisualizationEngine blocks={aiBlocks} />
+              )}
+            </div>
+
+            {/* Desktop */}
+            <motion.div
+              className="hidden md:block absolute inset-0 overflow-y-auto pt-6 pb-24 px-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="max-w-4xl mx-auto relative">
+                <button
+                  onClick={() => { setAiBlocks(null); setAiResponse(null); setAiLoading(false); }}
+                  className="absolute -top-1 right-0 z-10 text-xs text-white/40 hover:text-white transition px-3 py-1.5 glass-card"
+                >
+                  ✕ Close
+                </button>
+                {aiLoading ? (
+                  <div className="flex items-center justify-center h-60">
+                    <motion.span className="text-white/40 text-sm" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>Materializing...</motion.span>
+                  </div>
+                ) : (
+                  <VisualizationEngine blocks={aiBlocks} />
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ========== LOADING STATE ========== */}
+        {aiLoading && !aiResponse && !aiBlocks && (
+          <motion.div key="ai-loading" className="absolute inset-0 z-30 flex items-center justify-center">
+            <motion.div
+              className="glass-card-bright px-8 py-6 text-center"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <div className="flex items-center gap-3">
+                <span className="inline-block h-2 w-2 rounded-full bg-[#00d4aa] animate-pulse" />
+                <motion.span className="text-sm text-white/50" animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }}>
+                  Synthesizing response...
+                </motion.span>
+              </div>
+            </motion.div>
           </motion.div>
         )}
 
