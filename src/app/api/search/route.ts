@@ -6,9 +6,8 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Missing q parameter" }, { status: 400 });
   }
 
-  const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-
   // Try Brave first
+  const braveKey = process.env.BRAVE_SEARCH_API_KEY;
   if (braveKey) {
     try {
       const res = await fetch(
@@ -23,48 +22,92 @@ export async function GET(req: NextRequest) {
           url: r.url,
           image: r.thumbnail?.src || null,
         }));
-        return Response.json({ results, query });
+        if (results.length > 0) return Response.json({ results, query });
       }
     } catch {}
   }
 
-  // Fallback: DuckDuckGo HTML scrape (works reliably, no key needed)
+  // Try Google Custom Search (if configured)
+  const googleKey = process.env.GOOGLE_SEARCH_API_KEY;
+  const googleCx = process.env.GOOGLE_SEARCH_CX;
+  if (googleKey && googleCx) {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/customsearch/v1?key=${googleKey}&cx=${googleCx}&q=${encodeURIComponent(query)}&num=8`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const results = (data.items || []).slice(0, 8).map((r: any) => ({
+          title: r.title,
+          snippet: r.snippet,
+          url: r.link,
+          image: r.pagemap?.cse_thumbnail?.[0]?.src || r.pagemap?.cse_image?.[0]?.src || null,
+        }));
+        if (results.length > 0) return Response.json({ results, query });
+      }
+    } catch {}
+  }
+
+  // Fallback: SearXNG public instances
+  const searxngInstances = [
+    "https://search.sapti.me",
+    "https://searx.be",
+    "https://search.bus-hit.me",
+  ];
+  for (const instance of searxngInstances) {
+    try {
+      const res = await fetch(
+        `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&pageno=1`,
+        {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const results = (data.results || []).slice(0, 8).map((r: any) => ({
+          title: r.title,
+          snippet: r.content || "",
+          url: r.url,
+          image: r.thumbnail || r.img_src || null,
+        }));
+        if (results.length > 0) return Response.json({ results, query });
+      }
+    } catch {}
+  }
+
+  // Fallback: DuckDuckGo Lite HTML scrape
   try {
     const res = await fetch(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
       {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
+        signal: AbortSignal.timeout(5000),
       }
     );
     if (res.ok) {
       const html = await res.text();
       const results: any[] = [];
 
-      // Parse results from DDG HTML
-      const resultBlocks = html.split('class="result__body"');
-      for (let i = 1; i < resultBlocks.length && results.length < 8; i++) {
-        const block = resultBlocks[i];
+      // DDG Lite uses a table-based layout
+      const linkMatches = html.matchAll(/<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*class="result-link"[^>]*>([^<]+)<\/a>/g);
+      const snippetMatches = html.matchAll(/<td class="result-snippet">([^<]*(?:<[^>]+>[^<]*)*)<\/td>/g);
 
-        // Extract title
-        const titleMatch = block.match(/class="result__a"[^>]*>([^<]+)</);
-        const title = titleMatch?.[1]?.trim();
+      const links = [...linkMatches];
+      const snippets = [...snippetMatches];
 
-        // Extract URL from uddg parameter
-        const urlMatch = block.match(/uddg=([^&"]+)/);
-        let url = urlMatch?.[1] ? decodeURIComponent(urlMatch[1]) : null;
-
-        // Extract snippet
-        const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
-        let snippet = snippetMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || "";
-
+      for (let i = 0; i < Math.min(links.length, 8); i++) {
+        const url = links[i][1];
+        const title = links[i][2]?.trim();
+        const snippet = snippets[i]?.[1]?.replace(/<[^>]+>/g, "").trim() || "";
         if (title && url && !url.includes("duckduckgo.com")) {
           results.push({ title, snippet, url, image: null });
         }
       }
 
-      return Response.json({ results, query });
+      if (results.length > 0) return Response.json({ results, query });
     }
   } catch {}
 
