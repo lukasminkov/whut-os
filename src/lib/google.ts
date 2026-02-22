@@ -91,6 +91,37 @@ export async function getRecentEmails(accessToken: string, maxResults = 15) {
   return emails;
 }
 
+// Gmail Send
+export async function sendEmail(accessToken: string, to: string, subject: string, body: string) {
+  // Build RFC 2822 message
+  const messageParts = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'MIME-Version: 1.0',
+    '',
+    body,
+  ];
+  const rawMessage = messageParts.join('\r\n');
+  // Base64url encode
+  const encoded = Buffer.from(rawMessage)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ raw: encoded }),
+  });
+  if (!res.ok) throw new Error(`Gmail send failed ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // Google Drive
 export async function getRecentDriveFiles(accessToken: string, maxResults = 20) {
   const data = await gfetch(

@@ -282,7 +282,12 @@ export default function DashboardPage() {
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history: chatHistory }),
+        body: JSON.stringify({
+          message: trimmed,
+          history: chatHistory,
+          googleAccessToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.access_token || null; } catch { return null; } })(),
+          googleRefreshToken: (() => { try { const t = JSON.parse(localStorage.getItem('whut_google_tokens') || '{}'); return t.refresh_token || null; } catch { return null; } })(),
+        }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
