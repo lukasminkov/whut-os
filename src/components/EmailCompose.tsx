@@ -29,14 +29,33 @@ function isGoogleConnected() {
 }
 
 export default function EmailCompose({ data, onSend, onClose }: EmailComposeProps) {
-  const [to, setTo] = useState(data.to);
-  const [subject, setSubject] = useState(data.subject);
-  const [body, setBody] = useState(data.body);
+  const [to, setTo] = useState(data.to || "");
+  const [subject, setSubject] = useState(data.subject || "");
+  const [body, setBody] = useState(data.body || "");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fromEmail, setFromEmail] = useState<string | null>(null);
   const [loadingEmail, setLoadingEmail] = useState(true);
+
+  // Track which fields the user has manually edited (dirty tracking)
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+
+  const markDirty = (field: string) => {
+    setDirtyFields(prev => {
+      if (prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.add(field);
+      return next;
+    });
+  };
+
+  // When AI updates data props, update non-dirty fields
+  useEffect(() => {
+    if (data.to && !dirtyFields.has("to")) setTo(data.to);
+    if (data.subject && !dirtyFields.has("subject")) setSubject(data.subject);
+    if (data.body != null && !dirtyFields.has("body")) setBody(data.body);
+  }, [data.to, data.subject, data.body]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resolve the sender email
   useEffect(() => {
@@ -208,7 +227,7 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
           <span className="text-xs text-white/30 w-14 shrink-0">To</span>
           <input
             value={to}
-            onChange={(e) => setTo(e.target.value)}
+            onChange={(e) => { markDirty("to"); setTo(e.target.value); }}
             className="flex-1 bg-transparent text-sm text-white/80 outline-none placeholder:text-white/20"
             placeholder="recipient@email.com"
           />
@@ -219,7 +238,7 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
           <span className="text-xs text-white/30 w-14 shrink-0">Subject</span>
           <input
             value={subject}
-            onChange={(e) => setSubject(e.target.value)}
+            onChange={(e) => { markDirty("subject"); setSubject(e.target.value); }}
             className="flex-1 bg-transparent text-sm text-white/80 outline-none placeholder:text-white/20"
             placeholder="Subject"
           />

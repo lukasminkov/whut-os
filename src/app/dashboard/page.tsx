@@ -324,14 +324,7 @@ export default function DashboardPage() {
     setFocusedPanel(null);
   }, [activeView]);
 
-  // Auto-show notification overlay when unread emails load
-  useEffect(() => {
-    if (googleData.emails.some(e => e.unread) && !activeView && !aiLoading) {
-      const timer = setTimeout(() => setShowNotifications(true), 2000);
-      const hideTimer = setTimeout(() => setShowNotifications(false), 8000);
-      return () => { clearTimeout(timer); clearTimeout(hideTimer); };
-    }
-  }, [googleData.emails.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Notifications are manual-only — user clicks the bell icon to open
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
