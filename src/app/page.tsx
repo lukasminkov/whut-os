@@ -93,7 +93,7 @@ export default function Home() {
           <a href="#interface" className="hidden sm:block text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Interface</a>
           <a href="#vision" className="hidden sm:block text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Vision</a>
           <Link
-            href="/login"
+            href="/request-access"
             className="glass-button px-4 sm:px-5 py-2 text-[10px] sm:text-xs uppercase tracking-[0.25em]"
           >
             Request Access
@@ -140,7 +140,7 @@ export default function Home() {
 
           <motion.div variants={item} className="flex items-center gap-4 mt-2">
             <Link
-              href="/login"
+              href="/request-access"
               className="inline-flex items-center gap-2 rounded-xl bg-[#00d4aa] px-8 py-3.5 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:shadow-[0_0_40px_rgba(0,212,170,0.5)] hover:scale-[1.02]"
             >
               Request Access →
@@ -454,7 +454,7 @@ export default function Home() {
             Voice in. Visualization out. No typing. No tabs. No friction.
           </p>
           <Link
-            href="/login"
+            href="/request-access"
             className="inline-flex items-center gap-2 rounded-xl bg-[#00d4aa] px-10 py-4 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:shadow-[0_0_40px_rgba(0,212,170,0.5)] hover:scale-[1.02]"
           >
             Request Access →
