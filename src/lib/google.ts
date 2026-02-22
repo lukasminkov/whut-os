@@ -93,12 +93,34 @@ export async function getRecentEmails(accessToken: string, maxResults = 15) {
 
 // Gmail Send
 export async function sendEmail(accessToken: string, to: string, subject: string, body: string) {
-  // Build RFC 2822 message
+  // Fetch sender's email address for the From header
+  // This is lightweight and ensures proper RFC 2822 compliance
+  let fromAddress = 'me';
+  try {
+    const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (profileRes.ok) {
+      const profile = await profileRes.json();
+      if (profile.emailAddress) fromAddress = profile.emailAddress;
+    }
+  } catch { /* fall through — Gmail API will infer sender from token */ }
+
+  // RFC 2822 compliant date string
+  const date = new Date().toUTCString().replace('UTC', '+0000');
+
+  // Unique Message-ID — required by RFC 2822; missing it is a strong spam signal
+  const messageId = `<${crypto.randomUUID()}@mail.gmail.com>`;
+
+  // Build RFC 2822 message with all required headers
   const messageParts = [
+    `From: ${fromAddress}`,
     `To: ${to}`,
     `Subject: ${subject}`,
-    'Content-Type: text/plain; charset="UTF-8"',
+    `Date: ${date}`,
+    `Message-ID: ${messageId}`,
     'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
     '',
     body,
   ];
