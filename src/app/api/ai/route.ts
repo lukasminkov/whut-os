@@ -148,8 +148,8 @@ export async function POST(req: NextRequest) {
   const messages = [...(history || []), { role: "user", content: message }];
 
   // Smart routing: complex tasks → Opus 4.6, simple → Sonnet 4.6
-  const OPUS_MODEL = "claude-opus-4-6-20250627";
-  const SONNET_MODEL = "claude-sonnet-4-6-20250627";
+  const OPUS_MODEL = "claude-opus-4-6";
+  const SONNET_MODEL = "claude-sonnet-4-6";
 
   function selectModel(msg: string): string {
     const lower = msg.toLowerCase().trim();
