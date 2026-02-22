@@ -84,17 +84,17 @@ export default function Home() {
   return (
     <div className="landing-bg">
       {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-5 backdrop-blur-md bg-[#06060f]/60 border-b border-white/[0.04]">
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-8 py-4 sm:py-5 backdrop-blur-md bg-[#06060f]/60 border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold tracking-tight text-white">WHUT</span>
           <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 mt-0.5">OS</span>
         </div>
-        <div className="flex items-center gap-8">
-          <a href="#interface" className="text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Interface</a>
-          <a href="#vision" className="text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Vision</a>
+        <div className="flex items-center gap-4 sm:gap-8">
+          <a href="#interface" className="hidden sm:block text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Interface</a>
+          <a href="#vision" className="hidden sm:block text-xs uppercase tracking-[0.2em] text-white/50 hover:text-white transition">Vision</a>
           <Link
             href="/login"
-            className="glass-button px-5 py-2 text-xs uppercase tracking-[0.25em]"
+            className="glass-button px-4 sm:px-5 py-2 text-[10px] sm:text-xs uppercase tracking-[0.25em]"
           >
             Request Access
           </Link>
@@ -102,7 +102,7 @@ export default function Home() {
       </nav>
 
       {/* ── Hero ── */}
-      <section ref={heroRef} className="relative flex min-h-screen flex-col items-center justify-center px-6 pt-20 overflow-hidden">
+      <section ref={heroRef} className="relative flex min-h-screen flex-col items-center justify-center px-4 sm:px-6 pt-20 overflow-hidden">
         <div className="starfield" />
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-[#00d4aa]/[0.04] blur-[120px] pointer-events-none" />
         <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] rounded-full bg-[#6366f1]/[0.06] blur-[100px] pointer-events-none" />
@@ -120,7 +120,7 @@ export default function Home() {
 
           <motion.h1
             variants={item}
-            className="text-5xl font-light leading-[1.1] text-white sm:text-7xl lg:text-8xl"
+            className="text-4xl font-light leading-[1.1] text-white sm:text-7xl lg:text-8xl"
           >
             See everything.
             <br />
@@ -131,7 +131,7 @@ export default function Home() {
 
           <motion.p
             variants={item}
-            className="max-w-2xl text-base text-white/50 sm:text-lg leading-relaxed"
+            className="max-w-2xl text-sm text-white/50 sm:text-lg leading-relaxed px-2"
           >
             WHUT OS replaces every app, tab, and spreadsheet with a single intelligent surface. 
             Your data — visualized in real time. Your voice — the only input you need. 
@@ -170,7 +170,7 @@ export default function Home() {
       </section>
 
       {/* ── The Interface — Full Dashboard ── */}
-      <section id="interface" className="relative z-10 px-6 py-20">
+      <section id="interface" className="relative z-10 px-4 sm:px-6 py-20">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -179,7 +179,7 @@ export default function Home() {
           className="text-center mb-10"
         >
           <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">The Interface</p>
-          <h2 className="text-3xl font-light text-white sm:text-5xl mb-3">
+          <h2 className="text-2xl font-light text-white sm:text-5xl mb-3">
             Information, alive.
           </h2>
           <p className="text-white/40 max-w-xl mx-auto text-sm">
@@ -192,7 +192,7 @@ export default function Home() {
       </section>
 
       {/* ── Voice → Visualization Flow ── */}
-      <section className="relative z-10 px-6 py-32 border-t border-white/[0.04]">
+      <section className="relative z-10 px-4 sm:px-6 py-32 border-t border-white/[0.04]">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -201,7 +201,7 @@ export default function Home() {
           className="text-center mb-20"
         >
           <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">Interaction Model</p>
-          <h2 className="text-3xl font-light text-white sm:text-5xl mb-3">
+          <h2 className="text-2xl font-light text-white sm:text-5xl mb-3">
             Speak → See → Act
           </h2>
           <p className="text-white/40 max-w-xl mx-auto text-sm">
@@ -210,9 +210,9 @@ export default function Home() {
           </p>
         </motion.div>
 
-        <div className="mx-auto max-w-5xl space-y-32">
+        <div className="mx-auto max-w-5xl space-y-20 sm:space-y-32">
           {/* 1. The surface reshapes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -261,7 +261,7 @@ export default function Home() {
           </div>
 
           {/* 2. Go deeper */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center">
             <motion.div
               initial={{ opacity: 0, x: 30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -307,7 +307,7 @@ export default function Home() {
           </div>
 
           {/* 3. Execute with confidence */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -371,7 +371,7 @@ export default function Home() {
       </section>
 
       {/* ── The Thesis ── */}
-      <section id="vision" className="relative z-10 px-6 py-32 border-t border-white/[0.04]">
+      <section id="vision" className="relative z-10 px-4 sm:px-6 py-32 border-t border-white/[0.04]">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -380,7 +380,7 @@ export default function Home() {
           className="mx-auto max-w-3xl text-center"
         >
           <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-6">The Thesis</p>
-          <h2 className="text-2xl font-light text-white sm:text-4xl leading-snug mb-8">
+          <h2 className="text-xl font-light text-white sm:text-4xl leading-snug mb-8 px-2">
             Humans developed speech over 50,000 years. 
             We developed rich visual perception over millions. 
             <span className="text-white/40"> Yet we still interact with technology through 
@@ -400,7 +400,7 @@ export default function Home() {
       </section>
 
       {/* ── Connectors ── */}
-      <section className="relative z-10 px-6 py-24 border-t border-white/[0.04]">
+      <section className="relative z-10 px-4 sm:px-6 py-24 border-t border-white/[0.04]">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -409,7 +409,7 @@ export default function Home() {
           className="mx-auto max-w-4xl text-center"
         >
           <p className="text-xs uppercase tracking-[0.5em] text-[#00d4aa]/80 mb-4">Data Layer</p>
-          <h2 className="text-3xl font-light text-white sm:text-5xl mb-4">
+          <h2 className="text-2xl font-light text-white sm:text-5xl mb-4">
             Every source. One surface.
           </h2>
           <p className="text-white/40 mb-12 max-w-lg mx-auto text-sm">
@@ -434,7 +434,7 @@ export default function Home() {
       </section>
 
       {/* ── CTA ── */}
-      <section className="relative z-10 px-6 py-32 border-t border-white/[0.04]">
+      <section className="relative z-10 px-4 sm:px-6 py-32 border-t border-white/[0.04]">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -442,7 +442,7 @@ export default function Home() {
           transition={{ duration: 0.8 }}
           className="mx-auto max-w-3xl text-center"
         >
-          <h2 className="text-3xl font-light text-white sm:text-5xl mb-4">
+          <h2 className="text-2xl font-light text-white sm:text-5xl mb-4 px-2">
             Not a better app.
             <br />
             <span className="bg-gradient-to-r from-[#00d4aa] to-[#6366f1] bg-clip-text text-transparent">
@@ -463,7 +463,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-white/[0.04] px-6 py-8">
+      <footer className="relative z-10 border-t border-white/[0.04] px-4 sm:px-6 py-8">
         <div className="mx-auto max-w-6xl flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-white">WHUT</span>

@@ -168,9 +168,9 @@ export default function HUDMock() {
         className="relative w-full max-w-5xl mx-auto"
       >
         <div className="rounded-2xl border border-white/[0.08] bg-[#0b0b18] overflow-hidden shadow-2xl shadow-black/60">
-          <div className="flex" style={{ minHeight: 540 }}>
-            {/* ── Sidebar ── */}
-            <div className="w-40 border-r border-white/[0.06] flex flex-col justify-between py-6 px-5 flex-shrink-0">
+          <div className="flex flex-col md:flex-row" style={{ minHeight: 420 }}>
+            {/* ── Sidebar — hidden on mobile ── */}
+            <div className="hidden md:flex w-40 border-r border-white/[0.06] flex-col justify-between py-6 px-5 flex-shrink-0">
               <div className="space-y-6">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-[#00d4aa]" />
@@ -210,8 +210,15 @@ export default function HUDMock() {
               </div>
             </div>
 
+            {/* ── Mobile top bar ── */}
+            <div className="flex md:hidden items-center gap-2 absolute top-0 left-0 right-0 px-4 py-3 border-b border-white/[0.06] z-10">
+              <div className="w-2 h-2 rounded-full bg-[#00d4aa]" />
+              <span className="text-[11px] font-bold tracking-wide text-white">WHUT OS</span>
+              <span className="text-[9px] text-white/30 ml-auto">HUD</span>
+            </div>
+
             {/* ── Main Canvas ── */}
-            <div className="flex-1 flex flex-col p-6 relative">
+            <div className="flex-1 flex flex-col p-4 pt-12 md:p-6 md:pt-6 relative">
 
               {/* Voice Transcript Overlay — centered on canvas before cards appear */}
               <AnimatePresence>
@@ -233,11 +240,11 @@ export default function HUDMock() {
                     </motion.div>
 
                     {/* Live transcript words */}
-                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-sm px-4">
+                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-xs sm:max-w-sm px-4">
                       {words.map((word, i) => (
                         <motion.span
                           key={i}
-                          className="text-xl font-light"
+                          className="text-base sm:text-xl font-light"
                           initial={{ opacity: 0, y: 5 }}
                           animate={i < visibleCount
                             ? { opacity: 1, y: 0, color: "rgba(255,255,255,0.85)" }
@@ -270,14 +277,14 @@ export default function HUDMock() {
               </AnimatePresence>
 
               {/* Card grid — appears after voice input */}
-              <div className={`flex-1 grid grid-cols-3 gap-4 auto-rows-min content-start transition-opacity duration-500 ${cardsVisible ? "opacity-100" : "opacity-0"}`}>
+              <div className={`flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 auto-rows-min content-start transition-opacity duration-500 ${cardsVisible ? "opacity-100" : "opacity-0"}`}>
 
                 {/* Row 1: Total Revenue (2 col) + Channel Breakdown (1 col) */}
                 <motion.div
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
                   animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.5, delay: baseDelay }}
-                  className="col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
+                  className="md:col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-4 md:p-5 backdrop-blur-sm relative"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition">×</button>
                   <div className="text-[9px] uppercase tracking-[0.3em] text-white/25 mb-2">Total Revenue</div>
@@ -292,7 +299,7 @@ export default function HUDMock() {
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
                   animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.5, delay: baseDelay + 0.12 }}
-                  className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
+                  className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-4 md:p-5 backdrop-blur-sm relative"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition">×</button>
                   <div className="space-y-3">
@@ -314,7 +321,7 @@ export default function HUDMock() {
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
                   animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.6, delay: baseDelay + 0.28 }}
-                  className="col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative"
+                  className="md:col-span-2 rounded-xl bg-[#111125]/90 border border-white/[0.08] p-4 md:p-5 backdrop-blur-sm relative"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition z-10">×</button>
                   <div className="text-[9px] uppercase tracking-[0.3em] text-white/25 mb-3">Revenue (Last 30 Days)</div>
@@ -325,7 +332,7 @@ export default function HUDMock() {
                   initial={{ opacity: 0, y: 20, scale: 0.95 }}
                   animate={cardsVisible ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.5, delay: baseDelay + 0.4 }}
-                  className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-5 backdrop-blur-sm relative flex flex-col justify-center"
+                  className="rounded-xl bg-[#111125]/90 border border-white/[0.08] p-4 md:p-5 backdrop-blur-sm relative flex flex-col justify-center"
                 >
                   <button className="absolute top-3 right-3 text-white/15 text-[10px] hover:text-white/30 transition">×</button>
                   <div className="text-[10px] text-white/30 mb-1">Top product</div>
