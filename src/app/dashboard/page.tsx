@@ -173,6 +173,7 @@ export default function DashboardPage() {
   const [focusedPanel, setFocusedPanel] = useState<string | null>(null);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowGreeting(false), 4200);
@@ -223,24 +224,54 @@ export default function DashboardPage() {
     }
 
     setAiLoading(true);
+    setAiResponse("");
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: trimmed }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: trimmed, history: chatHistory }),
       });
-      const data = await response.json();
       if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
         throw new Error(data?.error || "Request failed");
       }
-      setAiResponse(data?.text || "No response");
+      // Stream the response
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let buffer = "";
+      setThinking(false);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.text) {
+                fullText += parsed.text;
+                setAiResponse(fullText);
+              }
+            } catch {}
+          }
+        }
+      }
+      // Add to conversation history
+      setChatHistory(prev => [
+        ...prev,
+        { role: "user", content: trimmed },
+        { role: "assistant", content: fullText },
+      ]);
     } catch (error: any) {
       setAiResponse(`Error: ${error?.message || "Request failed"}`);
+      setThinking(false);
     } finally {
       setAiLoading(false);
-      setThinking(false);
     }
   };
 
@@ -737,11 +768,11 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {(aiResponse || aiLoading) && (
+        {(aiResponse !== null) && (
           <motion.div key="ai-response" className="absolute inset-0">
             <Panel
               id="ai-response"
-              style={{ top: "18%", right: "8%", width: 520, height: 420 }}
+              style={{ top: "15%", left: "50%", width: 560, maxWidth: "90vw", height: 440, transform: "translateX(-50%)" }}
               className="bg-white/[0.03] backdrop-blur-md border border-white/[0.06] rounded-2xl"
               onClose={() => {
                 setAiResponse(null);
@@ -751,14 +782,19 @@ export default function DashboardPage() {
               isFocused={focusedPanel === "ai-response"}
               isDimmed={!!focusedPanel && focusedPanel !== "ai-response"}
             >
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">
-                {aiLoading ? "Thinking" : "Response"}
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/50">
+                {aiLoading && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#00d4aa] animate-pulse" />}
+                {aiLoading && !aiResponse ? "Thinking" : "WHUT OS"}
               </div>
-              <div className="mt-4 max-h-[320px] overflow-y-auto pr-2 text-sm text-white/70">
-                {aiLoading ? (
-                  <p className="text-white/60">Synthesizing insights...</p>
+              <div className="mt-4 max-h-[360px] overflow-y-auto pr-2 text-sm text-white/70 scrollbar-thin">
+                {aiLoading && !aiResponse ? (
+                  <div className="flex items-center gap-2 text-white/40">
+                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                      Synthesizing...
+                    </motion.span>
+                  </div>
                 ) : (
-                  <div className="prose prose-invert max-w-none text-sm text-white/70">
+                  <div className="prose prose-invert max-w-none text-sm text-white/70 prose-headings:text-white prose-a:text-[#00d4aa] prose-strong:text-white/90">
                     <ReactMarkdown>{aiResponse ?? ""}</ReactMarkdown>
                   </div>
                 )}
@@ -794,7 +830,7 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      <div className="absolute bottom-8 left-1/2 z-50 flex w-[520px] -translate-x-1/2 items-center gap-3">
+      <div className="absolute bottom-6 left-1/2 z-50 flex w-[90%] max-w-[520px] -translate-x-1/2 items-center gap-2 sm:gap-3">
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -807,9 +843,8 @@ export default function DashboardPage() {
           placeholder="Ask WHUT OS..."
           className="glass-input flex-1 px-4 py-3 text-sm outline-none placeholder:text-white/40"
         />
-        <button className="glass-button px-4 py-3 text-sm">🎙️</button>
-        <button onClick={handleSubmit} className="glass-button px-6 py-3 text-xs uppercase tracking-[0.3em]">
-          Send
+        <button onClick={handleSubmit} className="glass-button px-5 py-3 text-xs uppercase tracking-[0.2em]">
+          →
         </button>
       </div>
     </div>
