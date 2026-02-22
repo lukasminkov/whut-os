@@ -9,6 +9,7 @@ import VisualizationEngine from "@/components/VisualizationEngine";
 import type { VisualizationBlock } from "@/lib/visualization-tools";
 import SceneRenderer from "@/components/SceneRenderer";
 import type { SceneNode } from "@/lib/scene-types";
+import { isLayoutNode } from "@/lib/scene-types";
 import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
@@ -222,6 +223,38 @@ const MobileViewContainer = ({ children, onClose }: { children: ReactNode; onClo
 );
 
 let msgIdCounter = 0;
+// Smart scene merge: reuse same-type components so React doesn't remount them
+function mergeScenes(prev: SceneNode, next: SceneNode): SceneNode {
+  // If root layout types differ, just replace
+  if (prev.type !== next.type) return next;
+
+  // Build a map of prev children by type for matching
+  const prevChildren = prev.children || [];
+  const nextChildren = next.children || [];
+
+  if (prevChildren.length === 0 || nextChildren.length === 0) return next;
+
+  // Index prev children by type (first occurrence)
+  const prevByType = new Map<string, SceneNode>();
+  for (const child of prevChildren) {
+    if (!prevByType.has(child.type)) {
+      prevByType.set(child.type, child);
+    }
+  }
+
+  // For each next child, if same type exists in prev, keep prev's id so React reuses the node
+  const merged = nextChildren.map(child => {
+    const prevChild = prevByType.get(child.type);
+    if (prevChild) {
+      // Keep same id to preserve React key identity, merge new data
+      return { ...child, id: prevChild.id || child.id };
+    }
+    return child;
+  });
+
+  return { ...next, children: merged };
+}
+
 function nextMsgId() {
   return `msg-${++msgIdCounter}-${Date.now()}`;
 }
@@ -411,7 +444,11 @@ export default function DashboardPage() {
       const sceneData = result.scene?.layout 
         || result.blocks?.find((b: any) => b.type === "render_scene")?.data?.layout;
       if (sceneData) {
-        setAiScene(sceneData);
+        // Smart scene merge: if same component types exist, merge data to avoid remount
+        setAiScene(prev => {
+          if (!prev) return sceneData;
+          return mergeScenes(prev, sceneData);
+        });
         setAiBlocks(null);
       }
 

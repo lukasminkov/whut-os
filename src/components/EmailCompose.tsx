@@ -248,7 +248,7 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
         <div className="py-3">
           <textarea
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => { markDirty("body"); setBody(e.target.value); }}
             rows={8}
             className="w-full bg-transparent text-sm text-white/70 outline-none resize-none placeholder:text-white/20 leading-relaxed"
             placeholder="Write your message..."

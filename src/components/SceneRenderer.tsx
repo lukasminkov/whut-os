@@ -193,6 +193,7 @@ function ComponentLeaf({ node, index }: { node: SceneNode; index: number }) {
 
   return (
     <motion.div
+      layoutId={node.type}
       initial={{ opacity: 0, y: 12, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{
@@ -250,7 +251,7 @@ function LayoutNodeRenderer({ node, index }: { node: SceneNode; index: number })
       transition={{ delay: index * 0.03, duration: 0.3 }}
     >
       {node.children?.map((child, i) => (
-        <SceneNodeRenderer key={child.id ?? `node-${i}`} node={child} index={i} />
+        <SceneNodeRenderer key={child.id ?? child.type ?? `node-${i}`} node={child} index={i} />
       ))}
     </motion.div>
   );
