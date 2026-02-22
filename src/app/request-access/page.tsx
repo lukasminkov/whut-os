@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import PhoneInput from "@/components/PhoneInput";
 
 export default function RequestAccessPage() {
   const [form, setForm] = useState({ name: "", company: "", email: "", phone: "" });
@@ -122,13 +123,9 @@ export default function RequestAccessPage() {
                   className="glass-input w-full px-4 py-3 text-sm outline-none placeholder:text-white/30"
                   required
                 />
-                <input
-                  type="tel"
-                  placeholder="Phone number"
+                <PhoneInput
                   value={form.phone}
-                  onChange={update("phone")}
-                  className="glass-input w-full px-4 py-3 text-sm outline-none placeholder:text-white/30"
-                  required
+                  onChange={(val: string) => setForm(prev => ({ ...prev, phone: val }))}
                 />
               </div>
 
