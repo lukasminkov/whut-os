@@ -15,7 +15,7 @@ import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useGoogleData, EmailsList, DriveFilesList, CalendarEventsList } from "@/components/GoogleHUD";
 import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "@/components/ContextualLoadingPill";
 import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
-import ConversationTranscript, { type TranscriptMessage } from "@/components/ConversationTranscript";
+import type { TranscriptMessage } from "@/components/ConversationTranscript";
 import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
 import {
   Area,
@@ -355,7 +355,7 @@ export default function DashboardPage() {
     setThinking(true);
     setActiveView(null);
     setAiBlocks(null);
-    setAiScene(null);
+    // Don't clear aiScene — keep current scene visible while thinking
 
     // Add user message to transcript
     setTranscriptMessages(prev => [...prev, {
@@ -378,7 +378,6 @@ export default function DashboardPage() {
     }
 
     setAiLoading(true);
-    setAiBlocks(null);
     setLoadingAction(detectLoadingAction(trimmed));
 
     try {
@@ -662,7 +661,7 @@ export default function DashboardPage() {
       />
 
       {/* Floating conversation transcript */}
-      <ConversationTranscript messages={transcriptMessages} maxVisible={5} />
+      {/* Transcript removed — scene text-block IS the response */}
 
       <AnimatePresence mode="wait">
         {/* ========== REVENUE ========== */}
@@ -1162,11 +1161,26 @@ export default function DashboardPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
           >
             {/* Spacer to push content below the shrunken orb */}
             <div className="shrink-0 h-[45vh] md:h-[40vh]" />
             <SceneRenderer scene={aiScene} onClose={closeView} />
             <div className="shrink-0 h-24" />
+            {/* Thinking overlay on top of existing scene */}
+            <AnimatePresence>
+              {thinking && (
+                <motion.div
+                  className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-md px-3 py-1.5 text-xs text-white/60"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  Thinking…
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
 

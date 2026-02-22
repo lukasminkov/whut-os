@@ -14,7 +14,6 @@ export function useTTS() {
   const onEndRef = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -36,38 +35,6 @@ export function useTTS() {
     setIsSpeaking(false);
   }, []);
 
-  // Web Speech API fallback
-  const speakFallback = useCallback(
-    (text: string, onEnd?: () => void) => {
-      if (typeof window === "undefined" || !window.speechSynthesis) {
-        onEnd?.();
-        return;
-      }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05;
-      utterance.pitch = 1.0;
-      utterance.volume = 0.9;
-
-      // Try to pick an English voice
-      const voices = window.speechSynthesis.getVoices();
-      const en = voices.find((v) => v.lang.startsWith("en"));
-      if (en) utterance.voice = en;
-
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        onEnd?.();
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        onEnd?.();
-      };
-      window.speechSynthesis.speak(utterance);
-    },
-    []
-  );
-
   const speak = useCallback(
     (text: string, onEnd?: () => void) => {
       if (!text || isMuted) {
@@ -75,9 +42,7 @@ export function useTTS() {
         return;
       }
 
-      // Stop any current playback
       stopAudio();
-      window.speechSynthesis?.cancel();
       onEndRef.current = onEnd || null;
 
       const controller = new AbortController();
@@ -109,42 +74,33 @@ export function useTTS() {
             onEndRef.current = null;
           };
           audio.onerror = () => {
+            console.warn("ElevenLabs audio playback error — skipping speech");
             setIsSpeaking(false);
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            // Fallback to Web Speech
-            speakFallback(text, () => {
-              onEndRef.current?.();
-              onEndRef.current = null;
-            });
+            onEndRef.current?.();
+            onEndRef.current = null;
           };
 
-          audio.play().catch(() => {
-            // Autoplay blocked or error — fallback
+          audio.play().catch((err) => {
+            console.warn("Audio autoplay blocked — skipping speech:", err);
             URL.revokeObjectURL(url);
-            speakFallback(text, () => {
-              onEndRef.current?.();
-              onEndRef.current = null;
-            });
+            onEndRef.current?.();
+            onEndRef.current = null;
           });
         })
         .catch((err) => {
           if (err.name === "AbortError") return;
-          console.warn("ElevenLabs TTS failed, falling back:", err);
-          speakFallback(text, () => {
-            onEndRef.current?.();
-            onEndRef.current = null;
-          });
+          console.warn("ElevenLabs TTS failed — skipping speech:", err);
+          onEndRef.current?.();
+          onEndRef.current = null;
         });
     },
-    [isMuted, stopAudio, speakFallback]
+    [isMuted, stopAudio]
   );
 
   const stop = useCallback(() => {
     stopAudio();
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
     onEndRef.current = null;
   }, [stopAudio]);
 
@@ -152,10 +108,7 @@ export function useTTS() {
     setIsMuted((prev) => {
       const next = !prev;
       localStorage.setItem("whut_tts_muted", String(next));
-      if (next) {
-        stopAudio();
-        window.speechSynthesis?.cancel();
-      }
+      if (next) stopAudio();
       return next;
     });
   }, [stopAudio]);
@@ -180,16 +133,12 @@ function extractSceneText(node: any): string[] {
 }
 
 export function extractSpeakableText(blocks: any[], scene?: any): string {
-  // Try v2 scene graph first
   const sceneTexts = scene ? extractSceneText(scene) : [];
-  
-  // Then v1 blocks
   const blockTexts = (blocks || [])
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.content);
   
   const textParts = [...sceneTexts, ...blockTexts].join(" ");
-
   if (!textParts) return "";
 
   let clean = textParts
