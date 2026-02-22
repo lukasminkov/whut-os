@@ -24,7 +24,15 @@ const ACCENT_COLORS = [
 ];
 
 export default function CalendarEvents({ data, title }: CalendarEventsProps) {
-  const events: CalendarEvent[] = Array.isArray(data) ? data : data?.events ?? [];
+  const raw: any[] = Array.isArray(data) ? data : data?.events ?? [];
+  // Normalize Google Calendar API shape (summary → title, start.dateTime → start)
+  const events: CalendarEvent[] = raw.map((e: any) => ({
+    title: e.title || e.summary || "Untitled",
+    start: e.start?.dateTime || e.start?.date || e.start || "",
+    end: e.end?.dateTime || e.end?.date || e.end || undefined,
+    location: e.location || e.hangoutLink || undefined,
+    attendees: e.attendees?.map((a: any) => a.email || a.displayName || a) || e.attendees,
+  }));
 
   return (
     <div

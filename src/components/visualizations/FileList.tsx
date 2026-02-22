@@ -33,7 +33,14 @@ function getFileStyle(type: string) {
 }
 
 export default function FileList({ data, title }: FileListProps) {
-  const files: DriveFile[] = Array.isArray(data) ? data : data?.files ?? [];
+  const raw: any[] = Array.isArray(data) ? data : data?.files ?? [];
+  // Normalize Google Drive API shape (mimeType → type, modifiedTime → modified, webViewLink → link)
+  const files: DriveFile[] = raw.map((f: any) => ({
+    name: f.name || "Untitled",
+    type: f.type || mimeToType(f.mimeType) || "file",
+    modified: f.modified || f.modifiedTime || "",
+    link: f.link || f.webViewLink || undefined,
+  }));
 
   return (
     <div
@@ -97,6 +104,18 @@ export default function FileList({ data, title }: FileListProps) {
       )}
     </div>
   );
+}
+
+function mimeToType(mime?: string): string {
+  if (!mime) return "file";
+  if (mime.includes("document") || mime.includes("word")) return "document";
+  if (mime.includes("spreadsheet") || mime.includes("excel")) return "spreadsheet";
+  if (mime.includes("presentation") || mime.includes("powerpoint")) return "presentation";
+  if (mime.includes("pdf")) return "pdf";
+  if (mime.includes("image")) return "image";
+  if (mime.includes("video")) return "video";
+  if (mime.includes("folder")) return "folder";
+  return "file";
 }
 
 function formatModified(dateStr: string): string {

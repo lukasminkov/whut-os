@@ -58,7 +58,19 @@ export function useDataSlot(dataSource?: DataSource): DataSlotResult {
       .then(async (res) => {
         if (!res.ok) throw new Error(`Failed to fetch data: ${res.status}`);
         const json = await res.json();
-        setData(json);
+        // Unwrap the { data: ... } envelope from the data API
+        // and handle token refresh
+        if (json.new_access_token) {
+          try {
+            const tokens = getGoogleTokens();
+            if (tokens) {
+              tokens.access_token = json.new_access_token;
+              if (json.new_expires_at) tokens.expires_at = json.new_expires_at;
+              localStorage.setItem("whut_google_tokens", JSON.stringify(tokens));
+            }
+          } catch {}
+        }
+        setData(json.data ?? json);
       })
       .catch((err) => {
         setError(err.message);
