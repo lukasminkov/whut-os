@@ -7,6 +7,7 @@ import {
   RevenueChart, MarginWaterfall, MessageQueue, TrendLine, KPIRow,
   ChannelDonut, ActivityHeatmap, InventoryStatus, CampaignPerformance,
 } from "@/components/MockVisualizations";
+import HUDMock from "@/components/HUDMock";
 
 const container = {
   hidden: { opacity: 0 },
@@ -187,99 +188,7 @@ export default function Home() {
           </p>
         </motion.div>
 
-        {/* Dashboard mock */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="relative w-full max-w-5xl mx-auto"
-        >
-          <div className="rounded-xl border border-white/[0.08] bg-[#0a0a1a]/80 backdrop-blur-xl overflow-hidden shadow-2xl shadow-black/50">
-            {/* Title bar */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
-              <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-white/10" />
-                <div className="w-3 h-3 rounded-full bg-white/10" />
-                <div className="w-3 h-3 rounded-full bg-white/10" />
-              </div>
-              <div className="flex-1 flex justify-center">
-                <div className="px-4 py-1 rounded-md bg-white/[0.04] text-[10px] text-white/30 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#00d4aa] animate-pulse" />
-                  whut.ai — live
-                </div>
-              </div>
-            </div>
-
-            {/* Dashboard content */}
-            <div className="p-6 space-y-6">
-              {/* Top bar: greeting + voice */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <motion.div
-                    className="text-white/40 text-sm"
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: true }}
-                  >
-                    Good morning
-                  </motion.div>
-                  <motion.div
-                    className="text-white text-xl font-light"
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: true }}
-                    transition={{ delay: 0.2 }}
-                  >
-                    Everything looks good today.
-                  </motion.div>
-                </div>
-                <motion.div
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#00d4aa]/10 border border-[#00d4aa]/20"
-                  animate={{ opacity: [1, 0.6, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  <div className="w-2 h-2 rounded-full bg-[#00d4aa]" />
-                  <span className="text-[11px] text-[#00d4aa]/80">Listening</span>
-                </motion.div>
-              </div>
-
-              {/* KPIs */}
-              <KPIRow />
-
-              {/* Main grid: 3 cols */}
-              <div className="grid grid-cols-6 gap-5">
-                {/* Left: Revenue + Trend */}
-                <div className="col-span-2 space-y-5">
-                  <RevenueChart />
-                  <div>
-                    <div className="flex items-baseline justify-between mb-2">
-                      <span className="text-xs uppercase tracking-widest text-white/30">7-Day Trend</span>
-                      <span className="text-[10px] text-[#00d4aa]">↑ 23%</span>
-                    </div>
-                    <TrendLine />
-                  </div>
-                </div>
-
-                {/* Center: Channel donut + heatmap + inventory */}
-                <div className="col-span-2 space-y-5">
-                  <ChannelDonut />
-                  <ActivityHeatmap />
-                  <InventoryStatus />
-                </div>
-
-                {/* Right: Margin + Messages + Campaigns */}
-                <div className="col-span-2 space-y-5">
-                  <MarginWaterfall />
-                  <MessageQueue />
-                  <CampaignPerformance />
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Glow */}
-          <div className="absolute -bottom-20 left-1/2 -translate-x-1/2 w-[60%] h-40 bg-[#00d4aa]/[0.06] blur-[80px] pointer-events-none" />
-        </motion.div>
+        <HUDMock />
       </section>
 
       {/* ── Voice → Visualization Flow ── */}
