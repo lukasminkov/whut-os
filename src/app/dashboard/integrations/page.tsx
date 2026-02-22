@@ -1,20 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  Check,
   ExternalLink,
   ArrowRight,
+  LogOut,
 } from "lucide-react";
 
 type IntegrationStatus = "connected" | "available" | "coming_soon";
 
 interface Integration {
   name: string;
+  key: string; // localStorage key prefix
   description: string;
   category: "commerce" | "communication" | "productivity";
-  status: IntegrationStatus;
+  defaultStatus: IntegrationStatus;
   logo: React.ReactNode;
+  authUrl?: string; // OAuth start URL
 }
 
 /* ---------- Brand logos as clean SVGs ---------- */
@@ -73,6 +76,12 @@ const GoogleDriveLogo = () => (
   </svg>
 );
 
+const NotionLogo = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+    <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.607L2.84 2.298c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.84-.046.933-.56.933-1.167V6.354c0-.606-.233-.933-.746-.886l-15.177.886c-.56.047-.747.327-.747.934zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.747 0-.933-.234-1.495-.933l-4.577-7.186v6.952l1.448.327s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.14c-.093-.514.28-.886.747-.933zM1.936 1.035l13.31-.933c1.636-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.933.653.933 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.046-1.448-.094-1.962-.747L1.384 19.99c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.345-1.632z" className="text-white/80"/>
+  </svg>
+);
+
 const CanvaLogo = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6">
     <circle cx="12" cy="12" r="10" fill="#00C4CC"/>
@@ -83,58 +92,77 @@ const CanvaLogo = () => (
 const INTEGRATIONS: Integration[] = [
   {
     name: "Shopify",
+    key: "shopify",
     description: "Sync products, orders, and inventory",
     category: "commerce",
-    status: "connected",
+    defaultStatus: "connected",
     logo: <ShopifyLogo />,
   },
   {
     name: "Amazon",
+    key: "amazon",
     description: "Manage FBA listings and analytics",
     category: "commerce",
-    status: "connected",
+    defaultStatus: "connected",
     logo: <AmazonLogo />,
   },
   {
     name: "TikTok Shop",
+    key: "tiktok",
     description: "Track creator sales and commissions",
     category: "commerce",
-    status: "connected",
+    defaultStatus: "available",
     logo: <TikTokLogo />,
+    authUrl: "/api/auth/tiktok",
   },
   {
     name: "Slack",
+    key: "slack",
     description: "Alerts and team notifications",
     category: "communication",
-    status: "available",
+    defaultStatus: "available",
     logo: <SlackLogo />,
+    authUrl: "/api/auth/slack",
   },
   {
     name: "Discord",
+    key: "discord",
     description: "Community alerts and webhooks",
     category: "communication",
-    status: "available",
+    defaultStatus: "coming_soon",
     logo: <DiscordLogo />,
   },
   {
     name: "Email",
+    key: "email",
     description: "Automated reports and digests",
     category: "communication",
-    status: "connected",
+    defaultStatus: "connected",
     logo: <EmailLogo />,
   },
   {
     name: "Google Drive",
+    key: "gdrive",
     description: "Sync documents and spreadsheets",
     category: "productivity",
-    status: "connected",
+    defaultStatus: "available",
     logo: <GoogleDriveLogo />,
   },
   {
+    name: "Notion",
+    key: "notion",
+    description: "Sync databases and pages",
+    category: "productivity",
+    defaultStatus: "available",
+    logo: <NotionLogo />,
+    authUrl: "/api/auth/notion",
+  },
+  {
     name: "Canva",
+    key: "canva",
     description: "Import creative assets",
     category: "productivity",
-    status: "coming_soon",
+    defaultStatus: "coming_soon",
     logo: <CanvaLogo />,
   },
 ];
@@ -164,14 +192,106 @@ const CATEGORIES = [
   { key: "productivity", label: "Productivity" },
 ] as const;
 
+// Keys that indicate a real OAuth connection
+const TOKEN_KEYS: Record<string, string> = {
+  tiktok: "tiktok_access_token",
+  slack: "slack_access_token",
+  notion: "notion_access_token",
+};
+
+function getConnectionStatus(integration: Integration): IntegrationStatus {
+  if (typeof window === "undefined") return integration.defaultStatus;
+  const tokenKey = TOKEN_KEYS[integration.key];
+  if (tokenKey && localStorage.getItem(tokenKey)) {
+    return "connected";
+  }
+  return integration.defaultStatus;
+}
+
 export default function IntegrationsPage() {
   const [filter, setFilter] = useState<string>("all");
+  const [statuses, setStatuses] = useState<Record<string, IntegrationStatus>>({});
+  const searchParams = useSearchParams();
+
+  // Process OAuth callback tokens from URL params
+  const processCallbackTokens = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    // TikTok callback
+    if (searchParams.get("tiktok_connected") === "true") {
+      const token = searchParams.get("tiktok_access_token");
+      const refresh = searchParams.get("tiktok_refresh_token");
+      const expires = searchParams.get("tiktok_expires_at");
+      if (token) {
+        localStorage.setItem("tiktok_access_token", token);
+        if (refresh) localStorage.setItem("tiktok_refresh_token", refresh);
+        if (expires) localStorage.setItem("tiktok_expires_at", expires);
+      }
+    }
+
+    // Slack callback
+    if (searchParams.get("slack_connected") === "true") {
+      const token = searchParams.get("slack_access_token");
+      const teamName = searchParams.get("slack_team_name");
+      if (token) {
+        localStorage.setItem("slack_access_token", token);
+        if (teamName) localStorage.setItem("slack_team_name", teamName);
+      }
+    }
+
+    // Notion callback
+    if (searchParams.get("notion_connected") === "true") {
+      const token = searchParams.get("notion_access_token");
+      const wsName = searchParams.get("notion_workspace_name");
+      if (token) {
+        localStorage.setItem("notion_access_token", token);
+        if (wsName) localStorage.setItem("notion_workspace_name", wsName);
+      }
+    }
+
+    // Clean URL after processing
+    if (searchParams.get("tiktok_connected") || searchParams.get("slack_connected") || searchParams.get("notion_connected")) {
+      window.history.replaceState({}, "", "/dashboard/integrations");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    processCallbackTokens();
+    // Build status map
+    const map: Record<string, IntegrationStatus> = {};
+    for (const i of INTEGRATIONS) {
+      map[i.key] = getConnectionStatus(i);
+    }
+    setStatuses(map);
+  }, [processCallbackTokens]);
+
+  const handleConnect = (integration: Integration) => {
+    if (integration.authUrl) {
+      window.location.href = integration.authUrl;
+    }
+  };
+
+  const handleDisconnect = (integration: Integration) => {
+    const tokenKey = TOKEN_KEYS[integration.key];
+    if (!tokenKey) return;
+
+    // Clear all stored data for this integration
+    const prefix = integration.key;
+    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith(`${prefix}_`));
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+
+    setStatuses(prev => ({ ...prev, [integration.key]: integration.defaultStatus }));
+  };
+
+  const getStatus = (integration: Integration): IntegrationStatus => {
+    return statuses[integration.key] || integration.defaultStatus;
+  };
 
   const filtered = filter === "all"
     ? INTEGRATIONS
     : INTEGRATIONS.filter((i) => i.category === filter);
 
-  const connectedCount = INTEGRATIONS.filter((i) => i.status === "connected").length;
+  const connectedCount = INTEGRATIONS.filter((i) => getStatus(i) === "connected").length;
 
   return (
     <div className="min-h-screen px-8 py-10 text-white max-w-4xl">
@@ -200,10 +320,21 @@ export default function IntegrationsPage() {
         ))}
       </div>
 
+      {/* Error display */}
+      {searchParams.get("error") && (
+        <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Connection failed: {searchParams.get("error")}
+          {searchParams.get("msg") && ` — ${searchParams.get("msg")}`}
+        </div>
+      )}
+
       {/* Grid */}
       <div className="grid gap-3 sm:grid-cols-2">
         {filtered.map((integration) => {
-          const status = STATUS_CONFIG[integration.status];
+          const currentStatus = getStatus(integration);
+          const status = STATUS_CONFIG[currentStatus];
+          const isOAuthConnected = TOKEN_KEYS[integration.key] && currentStatus === "connected";
+
           return (
             <div
               key={integration.name}
@@ -227,12 +358,28 @@ export default function IntegrationsPage() {
                   <span className={`text-xs ${status.className}`}>{status.label}</span>
                 </div>
 
-                {integration.status === "connected" ? (
+                {currentStatus === "connected" && isOAuthConnected ? (
+                  <button
+                    onClick={() => handleDisconnect(integration)}
+                    className="flex items-center gap-1 text-xs text-red-400/60 hover:text-red-400 transition-colors"
+                  >
+                    Disconnect
+                    <LogOut className="h-3 w-3" />
+                  </button>
+                ) : currentStatus === "connected" ? (
                   <button className="flex items-center gap-1 text-xs text-white/30 hover:text-white/60 transition-colors">
                     Configure
                     <ExternalLink className="h-3 w-3" />
                   </button>
-                ) : integration.status === "available" ? (
+                ) : currentStatus === "available" && integration.authUrl ? (
+                  <button
+                    onClick={() => handleConnect(integration)}
+                    className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2.5 py-1 text-xs text-white/60 hover:bg-white/[0.1] hover:text-white transition-all"
+                  >
+                    Connect
+                    <ArrowRight className="h-3 w-3" />
+                  </button>
+                ) : currentStatus === "available" ? (
                   <button className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2.5 py-1 text-xs text-white/60 hover:bg-white/[0.1] hover:text-white transition-all">
                     Connect
                     <ArrowRight className="h-3 w-3" />
