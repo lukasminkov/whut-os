@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
 import { renderSceneTool, wrapV1Block } from "@/lib/scene-types";
 import { sendEmail, refreshAccessToken } from "@/lib/google";
-import { readFileSync } from "fs";
-import { join } from "path";
+import {
+  SKILL_CORE_OS,
+  SKILL_ONBOARDING,
+  INTEGRATION_SKILLS,
+} from "@/lib/skills";
 
 // Legacy tools kept for backward compat detection only
 const V1_TOOL_NAMES = [
@@ -17,55 +20,18 @@ const V1_TOOL_NAMES = [
 
 // ── Skill Loading ──────────────────────────────────────────────
 
-function loadSkill(filename: string): string {
-  try {
-    const skillPath = join(process.cwd(), "src", "skills", filename);
-    return readFileSync(skillPath, "utf-8");
-  } catch {
-    return "";
-  }
-}
-
 function loadSkills(connectedIntegrations: string[], isOnboarding: boolean): string {
-  const skills: string[] = [];
-  let tokenEstimate = 0;
-  const TOKEN_BUDGET = 6000; // ~6K tokens for skills
+  const skills: string[] = [SKILL_CORE_OS];
 
-  // Always load core OS skill
-  const coreSkill = loadSkill("core-os.md");
-  if (coreSkill) {
-    skills.push(coreSkill);
-    tokenEstimate += coreSkill.length / 4; // rough estimate
-  }
-
-  // Load onboarding skill if in onboarding mode
   if (isOnboarding) {
-    const onboardingSkill = loadSkill("onboarding.md");
-    if (onboardingSkill) {
-      skills.push(onboardingSkill);
-      tokenEstimate += onboardingSkill.length / 4;
-    }
+    skills.push(SKILL_ONBOARDING);
     return skills.join("\n\n---\n\n");
   }
 
   // Load integration skills based on connected integrations
-  const integrationSkillMap: Record<string, string> = {
-    gmail: "gmail.md",
-    calendar: "google-calendar.md",
-    drive: "google-drive.md",
-    tiktok: "tiktok-shop.md",
-  };
-
   for (const integration of connectedIntegrations) {
-    if (tokenEstimate > TOKEN_BUDGET) break;
-    const filename = integrationSkillMap[integration];
-    if (filename) {
-      const skill = loadSkill(filename);
-      if (skill) {
-        skills.push(skill);
-        tokenEstimate += skill.length / 4;
-      }
-    }
+    const skill = INTEGRATION_SKILLS[integration];
+    if (skill) skills.push(skill);
   }
 
   return skills.join("\n\n---\n\n");
