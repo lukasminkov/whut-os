@@ -210,7 +210,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return new Response(JSON.stringify({ blocks }), {
+    // Extract scene from blocks for top-level access
+    const sceneBlock = blocks.find((b: any) => b.type === "render_scene");
+    const scene = sceneBlock ? sceneBlock.data : undefined;
+
+    return new Response(JSON.stringify({ blocks, scene }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e: any) {

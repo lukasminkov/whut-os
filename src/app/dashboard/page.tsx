@@ -384,9 +384,11 @@ export default function DashboardPage() {
       const result = await response.json();
       setThinking(false);
 
-      // V2 scene graph response
-      if (result.scene?.layout) {
-        setAiScene(result.scene.layout);
+      // V2 scene graph response — check top-level scene OR scene inside blocks
+      const sceneData = result.scene?.layout 
+        || result.blocks?.find((b: any) => b.type === "render_scene")?.data?.layout;
+      if (sceneData) {
+        setAiScene(sceneData);
         setAiBlocks(null);
       }
 
@@ -399,8 +401,8 @@ export default function DashboardPage() {
       }
 
       // Extract text for transcript + TTS (works for both v1 blocks and v2 scenes)
-      const speakable = extractSpeakableText(result.blocks || [], result.scene?.layout);
-      const summaryText = speakable || (result.scene?.layout ? "Here you go." : "Done.");
+      const speakable = extractSpeakableText(result.blocks || [], sceneData);
+      const summaryText = speakable || (sceneData ? "Here you go." : "Done.");
 
       // Add assistant message to transcript
       setTranscriptMessages(prev => [...prev, {
