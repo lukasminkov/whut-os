@@ -616,17 +616,13 @@ export default function DashboardPage() {
         {aiScene && (
           <motion.div
             key="ai-scene"
-            className="absolute inset-0 z-30 flex flex-col items-center overflow-y-auto"
+            className="absolute inset-0 z-30 flex flex-col"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Spacer to push content below the shrunken orb */}
-            <div className="shrink-0 h-[45vh] md:h-[40vh]" />
             <SceneRenderer scene={aiScene} onClose={closeView} />
-            <div className="shrink-0 h-24" />
-            {/* Thinking state is now indicated by the orb animation — no text overlay */}
           </motion.div>
         )}
 

@@ -287,27 +287,49 @@ interface SceneRendererProps {
 }
 
 export default function SceneRenderer({ scene, onClose }: SceneRendererProps & { onClose?: () => void }) {
+  // Extract scene title from first text-block child if present
+  const sceneTitle = scene.title || scene.children?.find(c => c.type === "text-block")?.data?.text;
+
   return (
-    <motion.div
-      className="w-full max-w-4xl mx-auto px-6 py-8"
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={{ type: "spring", stiffness: 180, damping: 24 }}
-    >
+    <div className="flex flex-col h-full w-full">
+      {/* Header bar — aligns with the shrunken orb */}
       {onClose && (
-        <motion.button
-          onClick={onClose}
-          className="mb-4 flex items-center gap-2 text-xs text-white/30 hover:text-white/70 transition-colors group"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
+        <motion.div
+          className="shrink-0 flex items-center gap-3 px-6 md:px-8 pt-5 pb-3"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.3 }}
         >
-          <span className="inline-block w-6 h-6 rounded-full border border-white/10 group-hover:border-white/30 flex items-center justify-center transition-colors text-[10px]">✕</span>
-          <span className="uppercase tracking-[0.2em]">Close</span>
-        </motion.button>
+          {/* Spacer for orb area on desktop */}
+          <div className="hidden md:block w-[80px] shrink-0" />
+          {sceneTitle && (
+            <span className="text-[11px] uppercase tracking-[0.25em] text-white/30 truncate">
+              {sceneTitle}
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-3 py-1.5 rounded-lg hover:bg-white/[0.04]"
+          >
+            <span>✕</span>
+            <span>Close</span>
+          </button>
+        </motion.div>
       )}
-      <SceneNodeRenderer node={scene} index={0} />
-    </motion.div>
+
+      {/* Scene content — fills remaining viewport, scrollable */}
+      <motion.div
+        className="flex-1 overflow-y-auto min-h-0 px-6 md:px-8 pb-24"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ type: "spring", stiffness: 180, damping: 24, delay: 0.05 }}
+      >
+        <div className="w-full max-w-[900px] mx-auto">
+          <SceneNodeRenderer node={scene} index={0} />
+        </div>
+      </motion.div>
+    </div>
   );
 }

@@ -53,9 +53,9 @@ const CONFIGS: Record<OrbState, StateConfig> = {
     glowIntensity: 0.5, waveRings: true,
   },
   "scene-active": {
-    rotSpeed: 0.1, scale: 0.35, particleSpread: 0.9,
-    breatheAmp: 0.005, breatheFreq: 0.2, opacity: 0.4,
-    glowIntensity: 0.1, waveRings: false,
+    rotSpeed: 0.15, scale: 0.25, particleSpread: 0.9,
+    breatheAmp: 0.008, breatheFreq: 0.2, opacity: 0.6,
+    glowIntensity: 0.15, waveRings: false,
   },
 };
 
@@ -219,11 +219,15 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
       const baseRadius = isMobile ? 70 : 100;
       const orbRadius = baseRadius * a.scale;
 
-      // Position
-      const cx = w / 2;
-      // Normal: 40% from top. Scene-active: 60px from top
+      // Position — offset by sidebar on desktop (200px sidebar → 100px offset)
+      const sidebarOffset = w >= 768 ? 100 : 0;
+      const normalCx = w / 2 + sidebarOffset;
+      // Scene-active: top-left of content area (30px from left edge of content)
+      const sceneCx = 55;
+      const cx = lerp(normalCx, sceneCx, a.posY);
+      // Normal: 40% from top. Scene-active: 45px from top
       const normalY = h * 0.4;
-      const sceneY = 60 + orbRadius;
+      const sceneY = 45;
       const cy = lerp(normalY, sceneY, a.posY);
 
       // Floating Y offset (idle bob)
