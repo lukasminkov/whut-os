@@ -422,7 +422,7 @@ export default function DashboardPage() {
         setChatHistory(prev => [
           ...prev,
           { role: "user", content: trimmed },
-          { role: "assistant", content: speakable || "[visualization response]" },
+          { role: "assistant", content: summaryText },
         ]);
       } else {
         setTranscriptMessages(prev => [...prev, {
