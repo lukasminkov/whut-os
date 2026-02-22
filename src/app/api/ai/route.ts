@@ -236,7 +236,16 @@ export async function POST(req: NextRequest) {
     const sceneBlock = blocks.find((b: any) => b.type === "render_scene");
     const scene = sceneBlock ? sceneBlock.data : undefined;
 
-    return new Response(JSON.stringify({ blocks, scene }), {
+    // Pass Claude's token usage back to the client for usage tracking
+    const usage = data.usage
+      ? {
+          input_tokens: data.usage.input_tokens ?? 0,
+          output_tokens: data.usage.output_tokens ?? 0,
+          model: "claude-sonnet-4-20250514",
+        }
+      : undefined;
+
+    return new Response(JSON.stringify({ blocks, scene, usage }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e: any) {

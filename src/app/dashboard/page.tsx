@@ -18,6 +18,7 @@ import ContextualLoadingPill, { detectLoadingAction, type LoadingAction } from "
 import NotificationOverlay, { emailsToNotifications } from "@/components/NotificationOverlay";
 import type { TranscriptMessage } from "@/components/ConversationTranscript";
 import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
+import { trackUsage, estimateTokens } from "@/lib/usage";
 import {
   Area,
   AreaChart,
@@ -440,6 +441,23 @@ export default function DashboardPage() {
       const result = await response.json();
       setThinking(false);
 
+      // Track usage — use real token counts from API if available, otherwise estimate
+      try {
+        const inputTokens =
+          result.usage?.input_tokens ??
+          estimateTokens(
+            trimmed +
+              chatHistory.map((m: { role: string; content: string }) => m.content).join(" ")
+          );
+        const outputTokens =
+          result.usage?.output_tokens ??
+          estimateTokens(JSON.stringify(result.blocks || result.scene || ""));
+        const model = result.usage?.model ?? "claude-sonnet-4-20250514";
+        trackUsage(model, inputTokens, outputTokens);
+      } catch {
+        // non-critical — don't break the response flow
+      }
+
       // V2 scene graph response — check top-level scene OR scene inside blocks
       const sceneData = result.scene?.layout 
         || result.blocks?.find((b: any) => b.type === "render_scene")?.data?.layout;
@@ -462,7 +480,7 @@ export default function DashboardPage() {
 
       // Extract text for transcript + TTS (works for both v1 blocks and v2 scenes)
       const speakable = extractSpeakableText(result.blocks || [], sceneData);
-      const summaryText = speakable || (sceneData ? "Here you go." : "Done.");
+      const summaryText = speakable || (sceneData ? describeScene(sceneData) : "Done.");
 
       // Add assistant message to transcript
       setTranscriptMessages(prev => [...prev, {
@@ -641,8 +659,6 @@ export default function DashboardPage() {
     : "idle";
 
   const hasContent = activeView || aiBlocks || aiScene;
-  const orbSize = hasContent ? 180 : 300;
-  const mobileOrbSize = hasContent ? 100 : 160;
   const closeView = () => { setActiveView(null); setAiBlocks(null); setAiScene(null); };
 
   return (
@@ -650,41 +666,8 @@ export default function DashboardPage() {
       className="h-full w-full overflow-hidden relative"
       onClick={() => setFocusedPanel(null)}
     >
-      {/* Orb */}
-      <div className={`absolute inset-0 pointer-events-none ${aiScene ? 'z-5' : 'z-10'}`}>
-        <motion.div
-          animate={{
-            y: aiScene ? "-35vh" : hasContent ? -80 : 0,
-            scale: aiScene ? 1 : hasContent ? 0.7 : 1,
-            opacity: aiScene ? 0.5 : 1,
-          }}
-          transition={{ type: "spring", stiffness: 130, damping: 18, duration: 0.6 }}
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-        >
-          <div className="hidden md:block">
-            <AIOrb state={orbState} size={orbSize} />
-          </div>
-          <div className="md:hidden">
-            <AIOrb state={orbState} size={mobileOrbSize} />
-          </div>
-          <AnimatePresence>
-            {!hasContent && showGreeting && !loadingAction && (
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="mt-4 md:mt-6 text-center text-xs md:text-sm tracking-[0.3em] text-white/60"
-              >
-                {greeting}
-              </motion.p>
-            )}
-          </AnimatePresence>
-          {/* Contextual loading pill below orb */}
-          <div className="mt-4 flex justify-center">
-            <ContextualLoadingPill action={loadingAction} />
-          </div>
-        </motion.div>
-      </div>
+      {/* Orb — full-viewport canvas, handles its own positioning/transitions */}
+      <AIOrb state={orbState} />
 
       {/* Notification overlay for emails */}
       <NotificationOverlay

@@ -1,432 +1,346 @@
 "use client";
-import { useEffect, useRef, useMemo } from "react";
-import * as THREE from "three";
+import { useEffect, useRef, useCallback } from "react";
 
 export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "scene-active";
 
 interface AIOrbProps {
   state?: OrbState;
-  size?: number;
-  audioAnalyser?: AnalyserNode | null;
+  audioLevel?: number; // 0-1, optional for listening modulation
 }
 
-// Spring physics helper
-class Spring {
-  value: number;
-  target: number;
-  velocity = 0;
-  stiffness: number;
-  damping: number;
-
-  constructor(initial: number, stiffness = 150, damping = 18) {
-    this.value = initial;
-    this.target = initial;
-    this.stiffness = stiffness;
-    this.damping = damping;
-  }
-
-  update(dt: number) {
-    const force = -this.stiffness * (this.value - this.target);
-    const dampForce = -this.damping * this.velocity;
-    this.velocity += (force + dampForce) * dt;
-    this.value += this.velocity * dt;
-  }
-
-  set(target: number) {
-    this.target = target;
-  }
-
-  snap(value: number) {
-    this.value = value;
-    this.target = value;
-    this.velocity = 0;
-  }
-}
-
-// State color configs
-const STATE_COLORS: Record<OrbState, { h: number; s: number; l: number }> = {
-  idle:           { h: 0.48, s: 0.9,  l: 0.6  },  // cyan-teal
-  listening:      { h: 0.58, s: 0.95, l: 0.55 },  // deep blue
-  thinking:       { h: 0.40, s: 0.85, l: 0.5  },  // emerald-green → purple shift
-  speaking:       { h: 0.82, s: 0.85, l: 0.6  },  // purple-magenta
-  "scene-active": { h: 0.48, s: 0.7,  l: 0.5  },  // muted cyan
+// ── Color definitions (RGB) ──
+const COLORS: Record<OrbState, [number, number, number]> = {
+  idle:           [14, 165, 233],   // #0ea5e9 cyan
+  listening:      [59, 130, 246],   // #3b82f6 blue
+  thinking:       [16, 185, 129],   // #10b981 emerald
+  speaking:       [139, 92, 246],   // #8b5cf6 violet
+  "scene-active": [14, 165, 233],   // muted cyan (same base, opacity handles muting)
 };
 
-const STATE_CONFIG: Record<OrbState, {
-  rotSpeed: number;
-  scale: number;
-  breatheAmp: number;
-  breatheFreq: number;
-  particleSpread: number;
-  ringSpread: number;
+const THINKING_ALT: [number, number, number] = [139, 92, 246]; // purple flicker
+
+// ── State configs ──
+interface StateConfig {
+  rotSpeed: number;       // rad/s around Y
+  scale: number;          // multiplier
+  particleSpread: number; // radius multiplier
+  breatheAmp: number;     // 0-1
+  breatheFreq: number;    // Hz
   opacity: number;
-  waveform: number; // 0 = sphere, 1 = full waveform dispersion
-}> = {
-  idle:           { rotSpeed: 0.15, scale: 1.0,  breatheAmp: 0.02, breatheFreq: 1.0,  particleSpread: 1.0,  ringSpread: 1.0, opacity: 1.0, waveform: 0 },
-  listening:      { rotSpeed: 0.2,  scale: 1.1,  breatheAmp: 0.04, breatheFreq: 1.8,  particleSpread: 1.25, ringSpread: 1.2, opacity: 1.0, waveform: 0 },
-  thinking:       { rotSpeed: 0.6,  scale: 0.85, breatheAmp: 0.015,breatheFreq: 4.0,  particleSpread: 0.7,  ringSpread: 0.75,opacity: 1.0, waveform: 0 },
-  speaking:       { rotSpeed: 0.25, scale: 1.0,  breatheAmp: 0.06, breatheFreq: 2.5,  particleSpread: 1.0,  ringSpread: 1.0, opacity: 1.0, waveform: 1 },
-  "scene-active": { rotSpeed: 0.08, scale: 0.4,  breatheAmp: 0.01, breatheFreq: 0.8,  particleSpread: 0.9,  ringSpread: 0.9, opacity: 0.45,waveform: 0 },
+  glowIntensity: number;  // 0-1
+  waveRings: boolean;     // speaking concentric pulses
+}
+
+const CONFIGS: Record<OrbState, StateConfig> = {
+  idle: {
+    rotSpeed: 0.2, scale: 1.0, particleSpread: 1.0,
+    breatheAmp: 0.02, breatheFreq: 0.25, opacity: 1.0,
+    glowIntensity: 0.3, waveRings: false,
+  },
+  listening: {
+    rotSpeed: 0.3, scale: 1.1, particleSpread: 1.15,
+    breatheAmp: 0.05, breatheFreq: 0.5, opacity: 1.0,
+    glowIntensity: 0.5, waveRings: false,
+  },
+  thinking: {
+    rotSpeed: 1.5, scale: 0.9, particleSpread: 0.8,
+    breatheAmp: 0.015, breatheFreq: 0.8, opacity: 1.0,
+    glowIntensity: 0.4, waveRings: false,
+  },
+  speaking: {
+    rotSpeed: 0.8, scale: 1.0, particleSpread: 1.0,
+    breatheAmp: 0.04, breatheFreq: 0.4, opacity: 1.0,
+    glowIntensity: 0.5, waveRings: true,
+  },
+  "scene-active": {
+    rotSpeed: 0.1, scale: 0.35, particleSpread: 0.9,
+    breatheAmp: 0.005, breatheFreq: 0.2, opacity: 0.4,
+    glowIntensity: 0.1, waveRings: false,
+  },
 };
 
-export default function AIOrb({ state = "idle", size = 300, audioAnalyser = null }: AIOrbProps) {
-  const mountRef = useRef<HTMLDivElement>(null);
+// ── Lerp helpers ──
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+function lerpColor(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+
+// ── Particle definition ──
+interface Particle {
+  // Spherical coordinates (fixed)
+  theta: number;
+  phi: number;
+  radius: number;
+  // Per-particle randomness
+  rnd: number;
+  size: number;
+  brightnessOffset: number;
+}
+
+function createParticles(count: number): Particle[] {
+  const particles: Particle[] = [];
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      theta: Math.random() * Math.PI * 2,
+      phi: Math.acos(2 * Math.random() - 1),
+      radius: 0.85 + Math.random() * 0.3,
+      rnd: Math.random(),
+      size: 0.8 + Math.random() * 1.8,
+      brightnessOffset: Math.random() * 0.3 - 0.15,
+    });
+  }
+  return particles;
+}
+
+// Project 3D → 2D (simple Y-axis rotation + perspective)
+function project(
+  theta: number, phi: number, radius: number,
+  rotY: number, rotX: number,
+  cx: number, cy: number, orbRadius: number
+): { x: number; y: number; z: number; visible: boolean } {
+  // Spherical to cartesian
+  let x = radius * Math.sin(phi) * Math.cos(theta);
+  let y = radius * Math.cos(phi);
+  let z = radius * Math.sin(phi) * Math.sin(theta);
+
+  // Rotate around Y
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const x2 = x * cosY - z * sinY;
+  const z2 = x * sinY + z * cosY;
+  x = x2; z = z2;
+
+  // Subtle X rotation
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const y2 = y * cosX - z * sinX;
+  const z3 = y * sinX + z * cosX;
+  y = y2; z = z3;
+
+  // Perspective
+  const perspective = 3.5;
+  const scale = perspective / (perspective + z);
+
+  return {
+    x: cx + x * orbRadius * scale,
+    y: cy + y * orbRadius * scale,
+    z,
+    visible: z > -1.5,
+  };
+}
+
+export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef(state);
-  const analyserRef = useRef(audioAnalyser);
+  const audioRef = useRef(audioLevel);
   stateRef.current = state;
-  analyserRef.current = audioAnalyser;
+  audioRef.current = audioLevel;
+
+  const particlesRef = useRef<Particle[]>(createParticles(2500));
+
+  // Animated values (lerped each frame)
+  const anim = useRef({
+    rotSpeed: 0.2,
+    scale: 1.0,
+    particleSpread: 1.0,
+    breatheAmp: 0.02,
+    breatheFreq: 0.25,
+    opacity: 1.0,
+    glowIntensity: 0.3,
+    waveRings: 0,
+    color: [14, 165, 233] as [number, number, number],
+    // Position: Y offset ratio (0 = center at 40%, 1 = top)
+    posY: 0,
+  });
 
   useEffect(() => {
-    if (!mountRef.current) return;
-    const container = mountRef.current;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return;
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
-    camera.position.z = 3.5;
-
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    renderer.setSize(size, size);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(renderer.domElement);
-
-    // ─── Particles (sphere cloud) ───
-    const particleCount = 4000;
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const basePositions = new Float32Array(particleCount * 3); // original sphere positions
-    const colors = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const randoms = new Float32Array(particleCount); // per-particle random for variation
-
-    for (let i = 0; i < particleCount; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 1.2 + (Math.random() - 0.5) * 0.4;
-
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta);
-      const z = r * Math.cos(phi);
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
-      basePositions[i * 3] = x;
-      basePositions[i * 3 + 1] = y;
-      basePositions[i * 3 + 2] = z;
-
-      const hue = 0.45 + Math.random() * 0.1;
-      const color = new THREE.Color().setHSL(hue, 0.9, 0.55 + Math.random() * 0.3);
-      colors[i * 3] = color.r;
-      colors[i * 3 + 1] = color.g;
-      colors[i * 3 + 2] = color.b;
-
-      sizes[i] = 2 + Math.random() * 4;
-      randoms[i] = Math.random();
-    }
-
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uPixelRatio: { value: renderer.getPixelRatio() },
-        uOpacity: { value: 1.0 },
-      },
-      vertexShader: `
-        attribute float size;
-        varying vec3 vColor;
-        uniform float uTime;
-        uniform float uPixelRatio;
-        void main() {
-          vColor = color;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * uPixelRatio * (2.0 / -mvPosition.z);
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        uniform float uOpacity;
-        void main() {
-          float dist = length(gl_PointCoord - vec2(0.5));
-          if (dist > 0.5) discard;
-          float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
-          alpha = pow(alpha, 1.5);
-          vec3 glow = vColor * 1.5;
-          vec3 finalColor = mix(glow, vColor, smoothstep(0.0, 0.3, dist));
-          gl_FragColor = vec4(finalColor, alpha * 0.8 * uOpacity);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexColors: true,
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    scene.add(particles);
-
-    // ─── Rings ───
-    const ringCount = 1500;
-    const ringGeo = new THREE.BufferGeometry();
-    const ringPos = new Float32Array(ringCount * 3);
-    const ringBasePos = new Float32Array(ringCount * 3);
-    const ringCol = new Float32Array(ringCount * 3);
-    const ringSizes = new Float32Array(ringCount);
-
-    for (let i = 0; i < ringCount; i++) {
-      const t = (i / ringCount) * Math.PI * 2;
-      const ringIdx = Math.floor(Math.random() * 3);
-      const r = 0.8 + ringIdx * 0.25;
-      const tilt = ringIdx * 0.3;
-
-      const x = r * Math.cos(t) + (Math.random() - 0.5) * 0.1;
-      const y = (Math.random() - 0.5) * 0.08 + Math.sin(tilt) * r * Math.sin(t) * 0.3;
-      const z = r * Math.sin(t) + (Math.random() - 0.5) * 0.1;
-
-      ringPos[i * 3] = x;
-      ringPos[i * 3 + 1] = y;
-      ringPos[i * 3 + 2] = z;
-      ringBasePos[i * 3] = x;
-      ringBasePos[i * 3 + 1] = y;
-      ringBasePos[i * 3 + 2] = z;
-
-      const color = new THREE.Color().setHSL(0.48, 1.0, 0.7 + Math.random() * 0.2);
-      ringCol[i * 3] = color.r;
-      ringCol[i * 3 + 1] = color.g;
-      ringCol[i * 3 + 2] = color.b;
-      ringSizes[i] = 1.5 + Math.random() * 3;
-    }
-
-    ringGeo.setAttribute("position", new THREE.BufferAttribute(ringPos, 3));
-    ringGeo.setAttribute("color", new THREE.BufferAttribute(ringCol, 3));
-    ringGeo.setAttribute("size", new THREE.BufferAttribute(ringSizes, 1));
-
-    const ringMat = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uPixelRatio: { value: renderer.getPixelRatio() },
-        uOpacity: { value: 1.0 },
-      },
-      vertexShader: material.vertexShader,
-      fragmentShader: material.fragmentShader,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexColors: true,
-    });
-
-    const rings = new THREE.Points(ringGeo, ringMat);
-    scene.add(rings);
-
-    // ─── Springs for smooth interpolation ───
-    const springs = {
-      rotSpeed: new Spring(0.15, 120, 20),
-      scale: new Spring(1.0, 130, 18),
-      breatheAmp: new Spring(0.02, 100, 22),
-      breatheFreq: new Spring(1.0, 100, 22),
-      particleSpread: new Spring(1.0, 100, 20),
-      opacity: new Spring(1.0, 80, 15),
-      waveform: new Spring(0, 100, 20),
-      colorH: new Spring(0.48, 60, 15),
-      colorS: new Spring(0.9, 60, 15),
-      colorL: new Spring(0.6, 60, 15),
-      // Thinking color oscillation
-      thinkingHue: new Spring(0, 80, 18),
-    };
-
-    // Audio frequency data buffer
-    const freqData = new Uint8Array(64);
-
-    const clock = new THREE.Clock();
     let animId: number;
-    let lastTime = 0;
+    let startTime = performance.now();
 
-    const animate = () => {
-      const elapsed = clock.getElapsedTime();
-      const dt = Math.min(elapsed - lastTime, 0.05); // cap delta
-      lastTime = elapsed;
+    const LERP_FACTOR = 0.04; // smooth transitions
+    const COLOR_LERP = 0.03;
 
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio, 2);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const particles = particlesRef.current;
+
+    const frame = (now: number) => {
+      const elapsed = (now - startTime) / 1000;
       const currentState = stateRef.current;
-      const config = STATE_CONFIG[currentState] || STATE_CONFIG.idle;
-      const targetColor = STATE_COLORS[currentState] || STATE_COLORS.idle;
+      const config = CONFIGS[currentState];
+      const a = anim.current;
 
-      // Update spring targets
-      springs.rotSpeed.set(config.rotSpeed);
-      springs.scale.set(config.scale);
-      springs.breatheAmp.set(config.breatheAmp);
-      springs.breatheFreq.set(config.breatheFreq);
-      springs.particleSpread.set(config.particleSpread);
-      springs.opacity.set(config.opacity);
-      springs.waveform.set(config.waveform);
-      springs.colorH.set(targetColor.h);
-      springs.colorS.set(targetColor.s);
-      springs.colorL.set(targetColor.l);
+      // ── Lerp all animated properties ──
+      a.rotSpeed = lerp(a.rotSpeed, config.rotSpeed, LERP_FACTOR);
+      a.scale = lerp(a.scale, config.scale, LERP_FACTOR);
+      a.particleSpread = lerp(a.particleSpread, config.particleSpread, LERP_FACTOR);
+      a.breatheAmp = lerp(a.breatheAmp, config.breatheAmp, LERP_FACTOR);
+      a.breatheFreq = lerp(a.breatheFreq, config.breatheFreq, LERP_FACTOR);
+      a.opacity = lerp(a.opacity, config.opacity, LERP_FACTOR);
+      a.glowIntensity = lerp(a.glowIntensity, config.glowIntensity, LERP_FACTOR);
+      a.waveRings = lerp(a.waveRings, config.waveRings ? 1 : 0, LERP_FACTOR);
+      a.posY = lerp(a.posY, currentState === "scene-active" ? 1 : 0, LERP_FACTOR);
 
-      // Thinking: oscillate hue between green and purple
+      // Color target — thinking flickers between green and purple
+      let targetColor = COLORS[currentState];
       if (currentState === "thinking") {
-        const thinkOsc = Math.sin(elapsed * 2.0) * 0.5 + 0.5; // 0..1
-        springs.colorH.set(0.35 + thinkOsc * 0.45); // green(0.35) → purple(0.80)
+        const flicker = Math.sin(elapsed * 3) * 0.5 + 0.5;
+        targetColor = lerpColor(COLORS.thinking, THINKING_ALT, flicker * 0.3);
+      }
+      // Speaking: gradient between violet shades
+      if (currentState === "speaking") {
+        const shift = Math.sin(elapsed * 1.5) * 0.5 + 0.5;
+        targetColor = lerpColor([139, 92, 246], [168, 85, 247], shift);
+      }
+      a.color = lerpColor(a.color, targetColor, COLOR_LERP);
+
+      // ── Canvas dimensions ──
+      const w = canvas.width / Math.min(window.devicePixelRatio, 2);
+      const h = canvas.height / Math.min(window.devicePixelRatio, 2);
+
+      // Base orb radius (responsive)
+      const isMobile = w < 500;
+      const baseRadius = isMobile ? 70 : 100;
+      const orbRadius = baseRadius * a.scale;
+
+      // Position
+      const cx = w / 2;
+      // Normal: 40% from top. Scene-active: 60px from top
+      const normalY = h * 0.4;
+      const sceneY = 60 + orbRadius;
+      const cy = lerp(normalY, sceneY, a.posY);
+
+      // Floating Y offset (idle bob)
+      const floatY = Math.sin(elapsed * Math.PI * 0.5) * 5 * (1 - a.posY);
+
+      // Breathe
+      const breathe = 1 + a.breatheAmp * Math.sin(elapsed * a.breatheFreq * Math.PI * 2);
+
+      // Audio modulation for listening
+      const audioMod = currentState === "listening" ? audioRef.current * 0.15 : 0;
+
+      // Rotation angle
+      const rotY = elapsed * a.rotSpeed;
+      const rotX = Math.sin(elapsed * 0.3) * 0.15;
+
+      // ── Clear ──
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = a.opacity;
+
+      // ── Glow behind orb ──
+      if (a.glowIntensity > 0.01) {
+        const glowR = orbRadius * 2.5;
+        const grad = ctx.createRadialGradient(cx, cy + floatY, orbRadius * 0.3, cx, cy + floatY, glowR);
+        const [cr, cg, cb] = a.color;
+        grad.addColorStop(0, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.4})`);
+        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.1})`);
+        grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - glowR, cy + floatY - glowR, glowR * 2, glowR * 2);
       }
 
-      // Step all springs
-      for (const s of Object.values(springs)) {
-        s.update(dt);
-      }
-
-      const rotSpeed = springs.rotSpeed.value;
-      const scaleVal = springs.scale.value;
-      const breatheAmp = springs.breatheAmp.value;
-      const breatheFreq = springs.breatheFreq.value;
-      const spread = springs.particleSpread.value;
-      const opacity = springs.opacity.value;
-      const waveformMix = springs.waveform.value;
-      const h = springs.colorH.value;
-      const s = springs.colorS.value;
-      const l = springs.colorL.value;
-
-      // Get audio data if available (for speaking state)
-      let audioEnergy = 0;
-      let audioFreqs: number[] = [];
-      const analyser = analyserRef.current;
-      if (analyser && currentState === "speaking") {
-        analyser.getByteFrequencyData(freqData);
-        let sum = 0;
-        for (let i = 0; i < freqData.length; i++) {
-          sum += freqData[i];
-          audioFreqs.push(freqData[i] / 255);
+      // ── Speaking wave rings ──
+      if (a.waveRings > 0.05) {
+        const ringCount = 3;
+        for (let r = 0; r < ringCount; r++) {
+          const phase = (elapsed * 0.8 + r * 0.33) % 1;
+          const ringRadius = orbRadius * (1 + phase * 1.2);
+          const ringAlpha = (1 - phase) * 0.15 * a.waveRings;
+          const [cr, cg, cb] = a.color;
+          ctx.beginPath();
+          ctx.arc(cx, cy + floatY, ringRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${cr},${cg},${cb},${ringAlpha})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
-        audioEnergy = sum / (freqData.length * 255);
       }
 
-      // Breathe pulse
-      const breathe = 1.0 + breatheAmp * Math.sin(elapsed * breatheFreq * Math.PI * 2);
+      // ── Render particles (back-to-front via z-sort) ──
+      // Build projected array
+      type Projected = { x: number; y: number; z: number; size: number; brightness: number };
+      const projected: Projected[] = [];
 
-      // ─── Update particle positions & colors ───
-      const posAttr = geometry.getAttribute("position") as THREE.BufferAttribute;
-      const colAttr = geometry.getAttribute("color") as THREE.BufferAttribute;
+      const effectiveSpread = a.particleSpread * breathe + audioMod;
 
-      for (let i = 0; i < particleCount; i++) {
-        const bx = basePositions[i * 3];
-        const by = basePositions[i * 3 + 1];
-        const bz = basePositions[i * 3 + 2];
-        const rnd = randoms[i];
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        // Slight drift per particle
+        const driftTheta = p.theta + Math.sin(elapsed * 0.3 + p.rnd * 20) * 0.02;
+        const driftPhi = p.phi + Math.cos(elapsed * 0.25 + p.rnd * 30) * 0.015;
 
-        // Sphere position (with spread)
-        let x = bx * spread;
-        let y = by * spread;
-        let z = bz * spread;
-
-        // Speaking waveform: disperse particles into horizontal wave
-        if (waveformMix > 0.01) {
-          // Map particle to a horizontal band position
-          const bandX = (rnd * 2 - 1) * 2.8; // spread across width
-          const freqIdx = Math.floor(rnd * 32);
-          const freqVal = audioFreqs.length > freqIdx ? audioFreqs[freqIdx] : (0.3 + 0.4 * Math.sin(elapsed * 3 + rnd * 10));
-          const waveY = -0.5 + freqVal * 1.8 * Math.sin(elapsed * 2.5 + bandX * 2 + rnd * 5); // wave height
-          const waveZ = (Math.random() - 0.5) * 0.3;
-
-          x = x * (1 - waveformMix) + bandX * waveformMix;
-          y = y * (1 - waveformMix) + waveY * waveformMix;
-          z = z * (1 - waveformMix) + waveZ * waveformMix;
-        }
-
-        // Small float/drift
-        x += Math.sin(elapsed * 0.5 + rnd * 20) * 0.03;
-        y += Math.cos(elapsed * 0.4 + rnd * 30) * 0.03;
-
-        posAttr.setXYZ(i, x, y, z);
-
-        // Color
-        const variation = rnd * 0.06 - 0.03;
-        const c = new THREE.Color().setHSL(
-          h + variation,
-          s,
-          l + rnd * 0.15
+        const { x, y, z, visible } = project(
+          driftTheta, driftPhi, p.radius * effectiveSpread,
+          rotY, rotX,
+          cx, cy + floatY, orbRadius
         );
-        colAttr.setXYZ(i, c.r, c.g, c.b);
+
+        if (!visible) continue;
+
+        // Depth-based sizing and brightness
+        const depthFactor = (z + 1.5) / 3; // 0 (far) to 1 (near)
+        const sz = p.size * (0.4 + depthFactor * 0.8);
+        const brightness = 0.3 + depthFactor * 0.7 + p.brightnessOffset;
+
+        projected.push({ x, y, z, size: sz, brightness: Math.max(0, Math.min(1, brightness)) });
       }
-      posAttr.needsUpdate = true;
-      colAttr.needsUpdate = true;
 
-      // ─── Update ring positions & colors ───
-      const ringPosAttr = ringGeo.getAttribute("position") as THREE.BufferAttribute;
-      const ringColAttr = ringGeo.getAttribute("color") as THREE.BufferAttribute;
+      // Sort back to front
+      projected.sort((a, b) => a.z - b.z);
 
-      for (let i = 0; i < ringCount; i++) {
-        const bx = ringBasePos[i * 3];
-        const by = ringBasePos[i * 3 + 1];
-        const bz = ringBasePos[i * 3 + 2];
+      const [cr, cg, cb] = a.color;
+      for (const pt of projected) {
+        const r = Math.round(cr * pt.brightness);
+        const g = Math.round(cg * pt.brightness);
+        const b = Math.round(cb * pt.brightness);
+        const alpha = pt.brightness * 0.85;
 
-        ringPosAttr.setXYZ(i, bx * spread, by * spread, bz * spread);
-
-        const c = new THREE.Color().setHSL(h + 0.02, 1.0, 0.7 + Math.sin(elapsed + i) * 0.03);
-        ringColAttr.setXYZ(i, c.r, c.g, c.b);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.fill();
       }
-      ringPosAttr.needsUpdate = true;
-      ringColAttr.needsUpdate = true;
 
-      // ─── Apply transforms ───
-      material.uniforms.uTime.value = elapsed;
-      material.uniforms.uOpacity.value = opacity;
-      ringMat.uniforms.uTime.value = elapsed;
-      ringMat.uniforms.uOpacity.value = opacity;
-
-      const finalScale = scaleVal * breathe;
-      particles.rotation.y = elapsed * rotSpeed;
-      particles.rotation.x = Math.sin(elapsed * 0.3) * 0.1;
-      particles.scale.setScalar(finalScale);
-
-      rings.rotation.y = -elapsed * rotSpeed * 1.3;
-      rings.rotation.x = 0.4 + Math.sin(elapsed * 0.5) * 0.1;
-      rings.scale.setScalar(finalScale);
-
-      renderer.render(scene, camera);
-      animId = requestAnimationFrame(animate);
+      ctx.globalAlpha = 1;
+      animId = requestAnimationFrame(frame);
     };
 
-    animate();
+    animId = requestAnimationFrame(frame);
 
     return () => {
       cancelAnimationFrame(animId);
-      renderer.dispose();
-      geometry.dispose();
-      material.dispose();
-      ringGeo.dispose();
-      ringMat.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
+      window.removeEventListener("resize", resize);
     };
-  }, [size]);
+  }, []);
 
-  // Glow color per state
-  const glowColor = {
-    idle:           "rgba(0,212,170,0.12)",
-    listening:      "rgba(60,130,255,0.18)",
-    thinking:       "rgba(0,220,100,0.15)",
-    speaking:       "rgba(160,80,255,0.18)",
-    "scene-active": "rgba(0,212,170,0.06)",
-  }[state] || "rgba(0,212,170,0.12)";
+  const isSceneActive = state === "scene-active";
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <div ref={mountRef} className="relative" />
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          bottom: -50,
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: size * 2,
-          height: 100,
-          background: `radial-gradient(ellipse at center, ${glowColor} 0%, transparent 70%)`,
-          filter: "blur(25px)",
-          transition: "background 0.6s ease",
-        }}
-      />
-    </div>
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: isSceneActive ? 5 : 10,
+        pointerEvents: isSceneActive ? "none" : "none", // orb never captures events
+      }}
+    />
   );
 }
