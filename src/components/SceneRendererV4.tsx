@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useSyncExternalStore, useCallback } from "react";
-import { AnimatePresence, motion, LayoutGroup } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { X, ArrowLeft } from "lucide-react";
 import type { Scene, SceneElement } from "@/lib/scene-v4-types";
 import { solveLayout, getElementGridProps, getContentMaxWidth } from "@/lib/layout-solver-v4";
@@ -48,6 +48,10 @@ function PrimitiveContent({ element, onListExpandChange }: { element: SceneEleme
   }
 }
 
+// ── Z-index counter for bring-to-front ──────────────────
+let globalZCounter = 1;
+function bringToFront() { return ++globalZCounter; }
+
 // ── Scene Element with Native Drag ──────────────────────
 
 function SceneElementView({
@@ -61,8 +65,9 @@ function SceneElementView({
   const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
 
   const offsetRef = useRef({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
+  const draggingRef = useRef(false);
   const elementRef = useRef<HTMLDivElement>(null);
+  const [zIndex, setZIndex] = useState(0);
 
   const expanded = SceneManager.getExpandedItem();
   const isExpanded = expanded?.elementId === element.id;
@@ -86,16 +91,18 @@ function SceneElementView({
     finalGridProps = { ...gridProps, gridColumn: "1 / -1", minHeight: "400px" };
   }
 
+  // Bring to front on any interaction
+  const handleBringToFront = () => {
+    setZIndex(bringToFront());
+  };
+
   return (
     <motion.div
       ref={elementRef}
-      layout={!isDragging && offsetRef.current.x === 0 && offsetRef.current.y === 0}
-      layoutId={element.id}
       style={{
         ...finalGridProps,
-        zIndex: isDragging ? 100 : undefined,
+        zIndex: zIndex || undefined,
         position: "relative",
-        opacity: hasExpanded && !isExpanded ? 0.5 : 1,
         pointerEvents: "auto",
       }}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -109,8 +116,8 @@ function SceneElementView({
         duration: 0.3,
         delay: index * 0.08,
         ease: [0.4, 0, 0.2, 1],
-        layout: { type: "spring", damping: 25, stiffness: 200 },
       }}
+      onPointerDown={handleBringToFront}
     >
       <GlassPanel
         title={expandedTitle || element.title}
@@ -118,9 +125,10 @@ function SceneElementView({
         minimized={isMinimized}
         onDismiss={() => SceneManager.dismissElement(element.id)}
         onMinimize={() => SceneManager.minimizeElement(element.id)}
-        isDragging={isDragging}
+        isDragging={draggingRef.current}
         onDragStart={(e) => {
-          setIsDragging(true);
+          draggingRef.current = true;
+          setZIndex(bringToFront());
           const startX = e.clientX;
           const startY = e.clientY;
           const startOx = offsetRef.current.x;
@@ -137,7 +145,7 @@ function SceneElementView({
             }
           };
           const onUp = () => {
-            setIsDragging(false);
+            draggingRef.current = false;
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
           };
@@ -222,7 +230,6 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
 
       {/* Content grid — centered on screen */}
       <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 flex items-center justify-center">
-        <LayoutGroup>
           <div
             className="mx-auto w-full"
             style={{
@@ -246,7 +253,7 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
               ))}
             </AnimatePresence>
           </div>
-        </LayoutGroup>
+
       </div>
     </div>
   );
