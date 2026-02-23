@@ -76,40 +76,64 @@ export async function GET(req: NextRequest) {
     } catch {}
   }
 
-  // Fallback: DuckDuckGo Lite HTML scrape
+  // Fallback: Wikipedia API for encyclopedic results
+  let wikiResults: any[] = [];
+  try {
+    const wikiRes = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=5&format=json`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (wikiRes.ok) {
+      const [, titles, snippets, urls] = await wikiRes.json();
+      if (titles?.length > 0) {
+        wikiResults = titles.map((t: string, i: number) => ({
+          title: t,
+          snippet: snippets[i] || "",
+          url: urls[i],
+          image: null,
+        }));
+      }
+    }
+  } catch {}
+
+  // Fallback: DuckDuckGo HTML scrape
   try {
     const res = await fetch(
-      `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
       {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(8000),
       }
     );
     if (res.ok) {
       const html = await res.text();
       const results: any[] = [];
-
-      // DDG Lite uses a table-based layout
-      const linkMatches = html.matchAll(/<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*class="result-link"[^>]*>([^<]+)<\/a>/g);
-      const snippetMatches = html.matchAll(/<td class="result-snippet">([^<]*(?:<[^>]+>[^<]*)*)<\/td>/g);
-
-      const links = [...linkMatches];
-      const snippets = [...snippetMatches];
-
+      const linkRegex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.+?)<\/a>/g;
+      const snippetRegex = /<a[^>]+class="result__snippet"[^>]*>(.+?)<\/a>/g;
+      const links = [...html.matchAll(linkRegex)];
+      const snippets = [...html.matchAll(snippetRegex)];
       for (let i = 0; i < Math.min(links.length, 8); i++) {
-        const url = links[i][1];
-        const title = links[i][2]?.trim();
+        const rawUrl = links[i][1];
+        const title = links[i][2]?.replace(/<[^>]+>/g, "").trim();
         const snippet = snippets[i]?.[1]?.replace(/<[^>]+>/g, "").trim() || "";
+        const urlMatch = rawUrl.match(/uddg=([^&]+)/);
+        const url = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
         if (title && url && !url.includes("duckduckgo.com")) {
           results.push({ title, snippet, url, image: null });
         }
       }
-
-      if (results.length > 0) return Response.json({ results, query });
+      if (results.length > 0) {
+        // Merge wiki results at the top if we have them
+        const merged = [...wikiResults, ...results].slice(0, 8);
+        return Response.json({ results: merged, query });
+      }
     }
   } catch {}
+
+  // If only wiki results, return those
+  if (wikiResults.length > 0) return Response.json({ results: wikiResults, query });
 
   return Response.json({ results: [], query });
 }

@@ -81,8 +81,6 @@ function DraggableSceneElement({
         zIndex: isDragging ? 100 : undefined,
         position: "relative",
       }}
-      {...attributes}
-      {...listeners}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
@@ -100,6 +98,8 @@ function DraggableSceneElement({
         onDismiss={() => SceneManager.dismissElement(element.id)}
         onMinimize={() => SceneManager.minimizeElement(element.id)}
         dragHandleRef={setActivatorNodeRef}
+        dragListeners={listeners}
+        dragAttributes={attributes}
         isDragging={isDragging}
       >
         <PrimitiveContent element={element} />

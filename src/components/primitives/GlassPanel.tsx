@@ -13,12 +13,14 @@ interface GlassPanelProps {
   priority?: 1 | 2 | 3;
   noPadding?: boolean;
   dragHandleRef?: Ref<HTMLDivElement>;
+  dragListeners?: Record<string, any>;
+  dragAttributes?: Record<string, any>;
   isDragging?: boolean;
 }
 
 export default function GlassPanel({
   children, title, className = "", onDismiss, onMinimize, minimized, priority = 2, noPadding,
-  dragHandleRef, isDragging,
+  dragHandleRef, dragListeners, dragAttributes, isDragging,
 }: GlassPanelProps) {
   const isHero = priority === 1;
 
@@ -30,9 +32,9 @@ export default function GlassPanel({
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         border: "1px solid rgba(255,255,255,0.06)",
-        borderTop: isHero ? "2px solid rgba(0,212,170,0.4)" : "1px solid rgba(255,255,255,0.06)",
+        borderTop: "1px solid rgba(255,255,255,0.06)",
         boxShadow: isHero
-          ? "0 8px 32px rgba(0,0,0,0.3), 0 0 60px rgba(0,212,170,0.08)"
+          ? "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06)"
           : "0 4px 16px rgba(0,0,0,0.2)",
         transform: isDragging ? "scale(1.02)" : undefined,
         transition: "box-shadow 0.3s, transform 0.2s",
@@ -42,6 +44,8 @@ export default function GlassPanel({
       {(title || onDismiss || onMinimize) && (
         <div
           ref={dragHandleRef}
+          {...(dragListeners || {})}
+          {...(dragAttributes || {})}
           className={`flex items-center justify-between border-b border-white/[0.04] ${isHero ? "px-6 py-3" : "px-4 py-2.5"}`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
         >
@@ -52,7 +56,7 @@ export default function GlassPanel({
           )}
           <div className="flex items-center gap-1.5 ml-auto relative z-10">
             {onMinimize && (
-              <button onClick={onMinimize}
+              <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); onMinimize(); }}
                 className="w-6 h-6 flex items-center justify-center rounded-full border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/30 transition-colors text-white/40 hover:text-amber-400 cursor-pointer">
                 <Minus size={12} />
               </button>
