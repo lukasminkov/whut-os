@@ -28,8 +28,15 @@ Primitive types:
 - search-results: { results: [{title, url, snippet, image?}], query } — web results
 - embed: { html?, url?, title? } — sandboxed iframe content
 
-Layout modes: ambient (floating), focused (one hero), split (two panels), immersive (full-screen), minimal (text only)
-Priority: 1=hero (60% space), 2=supporting (30%), 3=ambient (10%)`,
+Layout modes: 
+- focused: hero in center with supporting panels around it (DEFAULT for most queries)
+- split: two equal panels side by side
+- ambient: even grid for overview dashboards
+- immersive: single element full-screen
+- minimal: text-only, narrow column
+
+Use "focused" for almost everything. Use "split" only for direct comparisons. Use "minimal" only for pure conversation text.
+Priority: 1=hero (center), 2=supporting (sides), 3=ambient (bottom)`,
   input_schema: {
     type: "object" as const,
     properties: {
@@ -44,7 +51,7 @@ Priority: 1=hero (60% space), 2=supporting (30%), 3=ambient (10%)`,
       layout: {
         type: "string",
         enum: ["ambient", "focused", "split", "immersive", "minimal"],
-        description: "Layout mode. Use 'focused' for single-topic, 'split' for two topics, 'ambient' for overview.",
+        description: "Layout mode. Use 'focused' for almost everything (hero center + supports around). 'split' for comparisons. 'minimal' for text only.",
       },
       elements: {
         type: "array",
@@ -181,15 +188,36 @@ When building a list of restaurants/places/products from search results:
 
 DON'T make up data you don't have. If search didn't return prices, don't invent a price chart. Show what you actually know.
 
-**Composition thinking:**
-- Hero (pri 1): The main answer — usually a list or primary content
-- 2-3 Supporting panels (pri 2-3): Additional context that makes the response feel intelligent
-  - For restaurant/place queries: neighborhood guide, hero image, cuisine breakdown
-  - For factual queries: chart showing trend, source text, related metric
-  - For email/calendar: unread count metric, upcoming events timeline
-- MINIMUM 3 panels for any search/informational query
-- MAXIMUM 5 panels. More than that is noise.
-- Show images. If search returned og:image URLs, use them in image panels.
+## Dashboard Composition
+
+Your display fills the entire screen. Empty space is wasted space. Think of it as a mission control dashboard:
+
+**For restaurant/place queries (5 panels):**
+1. Hero (pri 1): List of places with images, descriptions, click-to-expand detail
+2. Top-left (pri 2): Image — hero photo of the city/cuisine scene
+3. Top-right (pri 2): Text — quick take / neighborhood guide
+4. Bottom-left (pri 3): Metric or chart — interesting stat (e.g. "47 Michelin restaurants in Miami")
+5. Bottom-right (pri 3): Text or table — practical tips (best times, reservations, dress code)
+
+**For factual/data queries (4-5 panels):**
+1. Hero (pri 1): The main answer (metric, text, or chart)
+2. Left (pri 2): Supporting chart or visualization
+3. Right (pri 2): Context text with sources
+4. Bottom (pri 3): Related data table or additional facts
+
+**For email/calendar queries (3-4 panels):**
+1. Hero (pri 1): List of emails or timeline of events
+2. Side (pri 2): Metric — unread count or meetings today
+3. Side (pri 2): Text — AI summary of what needs attention
+
+**Rules:**
+- MINIMUM 3 panels for any informational query
+- AIM for 4-5 panels — fill the screen
+- MAXIMUM 6 panels
+- Every panel must contain REAL data, not filler
+- Use image panels when search results include images
+- Place the most important panel as priority 1 (it goes center)
+- Supporting panels go on the sides (priority 2) and bottom (priority 3)
 
 ## Click-to-Expand Lists
 For restaurants, products, places — include the \`detail\` field on each list item. When the user clicks an item, it expands inline with a hero image, description, and metadata. This is how Jarvis would present options: show the overview, then let the user drill into what interests them.
@@ -224,7 +252,7 @@ For each list item's detail:
 - Don't fetch data the user didn't ask for.
 - Don't show a display for casual conversation.
 - Don't repeat chart/table data in your spoken response.
-- Don't overwhelm with panels. Less is more.
+- Don't use more than 6 panels, but AIM for 4-5 to fill the screen.
 - Don't invent data you don't have. No fake price charts, no made-up ratings, no imaginary statistics.
 - If search returned 7 restaurants, show those 7. Don't add ones from your training data.
 - Supporting panels should add REAL context, not filler. A "quick take" text panel is better than a fabricated bar chart.

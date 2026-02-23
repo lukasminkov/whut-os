@@ -182,7 +182,7 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
 
   return (
     <DndContext onDragEnd={handleDragEnd}>
-      <div className="relative z-30 w-full h-full overflow-y-auto">
+      <div className="relative z-30 w-full h-full overflow-y-auto flex flex-col">
         {/* Header */}
         <motion.div
           className="relative z-10 flex items-center justify-between px-4 md:px-8 pt-5 pb-3"
@@ -212,16 +212,17 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
         </motion.div>
 
         {/* Content grid */}
-        <div className="relative z-10 px-4 md:px-8 pb-24">
+        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0">
           <LayoutGroup>
             <div
-              className="mx-auto"
+              className="mx-auto h-full"
               style={{
                 maxWidth,
                 display: "grid",
                 gridTemplateColumns: isMobile ? "1fr" : solved.columns,
                 gridTemplateRows: isMobile ? "auto" : solved.rows,
                 gap: isMobile ? "12px" : "16px",
+                minHeight: isMobile ? "auto" : "calc(100vh - 200px)",
               }}
             >
               <AnimatePresence mode="popLayout">
