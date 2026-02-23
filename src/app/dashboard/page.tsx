@@ -246,22 +246,10 @@ export default function DashboardPage() {
 
             if (event.type === "text_delta") {
               streamingText += event.text;
-              // Show streaming text as a minimal scene
-              const textScene: Scene = {
-                id: "streaming-text",
-                intent: "",
-                layout: "minimal",
-                elements: [{
-                  id: "response",
-                  type: "text",
-                  priority: 1,
-                  data: { content: streamingText },
-                }],
-              };
-              setCurrentScene(textScene);
+              // Don't create a scene panel yet — wait for "done" event
+              // The AI might follow up with a tool call (search → display)
+              // Just update the chat recap for now
               setThinking(false);
-              setStatusText(null);
-              receivedScene = true;
 
               // Update chat recap with streaming text
               if (!assistantAdded) {
