@@ -68,7 +68,7 @@ function lerpColor(a: [number, number, number], b: [number, number, number], t: 
 }
 
 // ── Particle definition ──
-const PARTICLE_COUNT = 2500;
+const PARTICLE_COUNT = 5000;
 
 interface Particle {
   theta: number;
@@ -162,12 +162,12 @@ function getStripPosition(
   const y = baseY + wave1 + wave2 + wave3 + audioWave + verticalOffset;
 
   // Size based on layer (back=small, front=large)
-  const baseSize = [1.0, 2.5, 4.5][particle.layer];
-  const sizeAudio = audioLevel * [0.5, 1.0, 2.0][particle.layer];
+  const baseSize = [0.3, 0.6, 1.0][particle.layer];
+  const sizeAudio = audioLevel * [0.2, 0.4, 0.6][particle.layer];
   const size = baseSize + sizeAudio;
 
   // Alpha based on layer (back=dim, front=bright)
-  const baseAlpha = [0.15, 0.35, 0.7][particle.layer];
+  const baseAlpha = [0.1, 0.25, 0.5][particle.layer];
   const alphaAudio = audioLevel * 0.2;
   const alpha = Math.min(1, baseAlpha + alphaAudio);
 
@@ -302,31 +302,7 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         ctx.fillRect(cx - glowR, cy + floatY - glowR, glowR * 2, glowR * 2);
       }
 
-      // ── Strip glow (fades in with morph) — volumetric cloud glow ──
-      if (mp > 0.3) {
-        const [cr, cg, cb] = a.color;
-        const glowAlpha = (mp - 0.3) * 1.4 * 0.2;
-
-        // Wide ambient glow
-        const glow = ctx.createRadialGradient(
-          w / 2, h - 70, 0,
-          w / 2, h - 70, w * 0.6
-        );
-        glow.addColorStop(0, `rgba(${cr},${cg},${cb},${glowAlpha * 0.3})`);
-        glow.addColorStop(0.3, `rgba(${cr},${cg},${cb},${glowAlpha * 0.15})`);
-        glow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-        ctx.fillStyle = glow;
-        ctx.fillRect(0, h - 200, w, 200);
-
-        // Tighter glow right at the strip
-        const tightGlow = ctx.createLinearGradient(0, h - 130, 0, h - 50);
-        tightGlow.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
-        tightGlow.addColorStop(0.4, `rgba(${cr},${cg},${cb},${glowAlpha * 0.4})`);
-        tightGlow.addColorStop(0.6, `rgba(${cr},${cg},${cb},${glowAlpha * 0.4})`);
-        tightGlow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-        ctx.fillStyle = tightGlow;
-        ctx.fillRect(0, h - 130, w, 80);
-      }
+      // No background glow — just particles
 
       // ── Speaking wave rings (sphere mode only) ──
       if (a.waveRings > 0.05 && mp < 0.5) {
@@ -410,19 +386,7 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         const b = Math.round(cb * pt.brightness);
         const alpha = pt.brightness * 0.85;
 
-        // Glow effect for front-layer particles in strip mode
-        if (mp > 0.5 && pt.layer === 2 && pt.size > 3) {
-          const gradient = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.size * 3);
-          gradient.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.6})`);
-          gradient.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.15})`);
-          gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, pt.size * 3, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Core particle dot
+        // Core particle dot — no glow, just clean tiny particles
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
