@@ -196,3 +196,11 @@ body.dashboard-active {
     grid-column: span 2 !important;
   }
 }
+
+/* Mobile performance: reduce blur */
+@media (max-width: 767px) {
+  .group {
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
+}

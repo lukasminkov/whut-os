@@ -1,62 +1,75 @@
 "use client";
 
+import { useMemo } from "react";
 import { motion } from "framer-motion";
+import ReactEChartsCore from "echarts-for-react/lib/core";
+import * as echarts from "echarts/core";
+import { BarChart } from "echarts/charts";
+import { GridComponent, TooltipComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+import { whutEChartsTheme } from "@/lib/echarts-theme";
 import type { ChartBarData } from "@/lib/scene-v4-types";
+
+echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+echarts.registerTheme("whut", whutEChartsTheme as any);
 
 interface ChartBarPrimitiveProps {
   data: ChartBarData;
 }
 
 export default function ChartBarPrimitive({ data }: ChartBarPrimitiveProps) {
-  const maxVal = Math.max(...data.bars.map(b => b.value), 1);
   const color = data.color || "#00d4aa";
+  const isHorizontal = !!data.horizontal;
 
-  if (data.horizontal) {
-    return (
-      <div className="space-y-2">
-        {data.label && <p className="text-[10px] text-white/30 uppercase tracking-[0.15em]">{data.label}</p>}
-        <div className="space-y-2">
-          {data.bars.map((bar, i) => (
-            <div key={i} className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="text-white/50 truncate">{bar.label}</span>
-                <span className="text-white/70 tabular-nums ml-2">{bar.value}</span>
-              </div>
-              <div className="h-5 rounded-md bg-white/[0.04] overflow-hidden">
-                <motion.div
-                  className="h-full rounded-md"
-                  style={{ background: `linear-gradient(90deg, ${color}80, ${color})`, boxShadow: `0 0 12px ${color}30` }}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(bar.value / maxVal) * 100}%` }}
-                  transition={{ delay: i * 0.08, duration: 0.8, ease: "easeOut" }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const option = useMemo(() => {
+    const categoryAxis = {
+      type: "category" as const,
+      data: data.bars.map(b => b.label),
+      axisLabel: { fontSize: 9, color: "rgba(255,255,255,0.3)", rotate: isHorizontal ? 0 : 0 },
+    };
+    const valueAxis = { type: "value" as const };
 
-  // Vertical bars
+    return {
+      tooltip: {
+        trigger: "axis" as const,
+        backgroundColor: "rgba(0,0,0,0.8)",
+        borderColor: "rgba(0,212,170,0.3)",
+        textStyle: { color: "#fff", fontSize: 11 },
+      },
+      grid: { top: 16, right: 16, bottom: 30, left: isHorizontal ? 80 : 40, containLabel: false },
+      xAxis: isHorizontal ? valueAxis : categoryAxis,
+      yAxis: isHorizontal ? categoryAxis : valueAxis,
+      series: [{
+        type: "bar" as const,
+        data: data.bars.map(b => b.value),
+        barMaxWidth: 40,
+        itemStyle: {
+          color: new echarts.graphic.LinearGradient(0, isHorizontal ? 0 : 1, isHorizontal ? 1 : 0, 0, [
+            { offset: 0, color: color + "60" },
+            { offset: 1, color },
+          ]),
+          borderRadius: isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0],
+          shadowColor: color + "30",
+          shadowBlur: 12,
+        },
+        animationDuration: 800,
+        animationEasing: "cubicOut" as const,
+        animationDelay: (idx: number) => idx * 60,
+      }],
+    };
+  }, [data, color, isHorizontal]);
+
   return (
-    <div className="space-y-2">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
       {data.label && <p className="text-[10px] text-white/30 uppercase tracking-[0.15em]">{data.label}</p>}
-      <div className="flex items-end gap-2 h-[180px]">
-        {data.bars.map((bar, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-            <span className="text-[10px] text-white/50 tabular-nums">{bar.value}</span>
-            <motion.div
-              className="w-full max-w-[40px] rounded-t-md"
-              style={{ background: `linear-gradient(to top, ${color}60, ${color})`, boxShadow: `0 0 12px ${color}20` }}
-              initial={{ height: 0 }}
-              animate={{ height: `${(bar.value / maxVal) * 100}%` }}
-              transition={{ delay: i * 0.06, duration: 0.7, ease: "easeOut" }}
-            />
-            <span className="text-[9px] text-white/30 truncate max-w-full text-center">{bar.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+      <ReactEChartsCore
+        echarts={echarts}
+        option={option}
+        theme="whut"
+        style={{ height: 200, width: "100%" }}
+        opts={{ renderer: "canvas" }}
+        notMerge
+      />
+    </motion.div>
   );
 }

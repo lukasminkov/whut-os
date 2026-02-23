@@ -1,7 +1,5 @@
 import { NextRequest } from "next/server";
 import { AI_TOOLS_V4, V4_SYSTEM_PROMPT } from "@/lib/tools-v4";
-// Legacy import kept for backward compat if needed
-// import { AI_TOOLS, V3_SYSTEM_PROMPT } from "@/lib/tools";
 import {
   getRecentEmails,
   getMessage,
@@ -17,6 +15,10 @@ import {
 } from "@/lib/skills";
 import { createAdminClient, isSupabaseServerConfigured } from "@/lib/supabase";
 import { createServerClient } from "@/lib/supabase-server";
+import { loadUserMemories, loadTopMemorySummary } from "@/lib/memory";
+import { selectModel } from "@/lib/model-router";
+import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
+import { recordToolError, detectReask } from "@/lib/self-improve";
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -55,29 +57,21 @@ async function updateGoogleTokenInDB(userId: string, newAccessToken: string) {
   }).eq('user_id', userId).eq('provider', 'google');
 }
 
-async function loadMemories(userId: string): Promise<string> {
+/**
+ * Load connected integrations for a user (for self-awareness).
+ */
+async function loadUserIntegrations(userId: string): Promise<string[]> {
   const admin = createAdminClient();
-  if (!admin) return '';
-  // Fetch more than needed, then sort by importance * reinforcement in JS
-  const { data } = await admin
-    .from('memories')
-    .select('id, category, content, importance, reinforcement_count, last_accessed_at')
-    .eq('user_id', userId)
-    .order('last_accessed_at', { ascending: false })
-    .limit(50);
-  if (!data || data.length === 0) return '';
-  // Score and take top 15
-  const scored = data
-    .map(m => ({ ...m, score: (m.importance || 0.5) * (m.reinforcement_count || 1) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 15);
-  // Update last_accessed_at for retrieved memories
-  const ids = scored.map(m => (m as any).id).filter(Boolean);
-  if (ids.length > 0) {
-    admin.from('memories').update({ last_accessed_at: new Date().toISOString() }).in('id', ids).then(() => {});
+  if (!admin) return [];
+  try {
+    const { data } = await admin
+      .from('integrations')
+      .select('provider')
+      .eq('user_id', userId);
+    return (data || []).map(i => i.provider);
+  } catch {
+    return [];
   }
-  const lines = scored.map(m => `- [${m.category}] ${m.content}`).join('\n');
-  return `\n\n## What You Know About This User\n${lines}`;
 }
 
 async function loadConversationHistory(conversationId: string): Promise<{ role: string; content: string }[]> {
@@ -93,132 +87,53 @@ async function loadConversationHistory(conversationId: string): Promise<{ role: 
   return data.reverse().map(m => ({ role: m.role, content: m.content }));
 }
 
-async function saveMessages(
-  conversationId: string,
-  userMsg: string,
-  assistantMsg: string,
-  cardsJson: any,
-  model: string,
-  tokensIn?: number,
-  tokensOut?: number,
-) {
+/**
+ * Get conversation message count (to determine if this is the first message).
+ */
+async function getConversationMessageCount(conversationId: string): Promise<number> {
   const admin = createAdminClient();
-  if (!admin || !conversationId) return;
-  // Save user message
-  await admin.from('messages').insert({
-    conversation_id: conversationId,
-    role: 'user',
-    content: userMsg,
-  });
-  // Save assistant message
-  await admin.from('messages').insert({
-    conversation_id: conversationId,
-    role: 'assistant',
-    content: assistantMsg,
-    cards_json: cardsJson,
-    model,
-    tokens_in: tokensIn,
-    tokens_out: tokensOut,
-  });
-  // Update conversation
-  await admin.from('conversations').update({
-    last_message_at: new Date().toISOString(),
-  }).eq('id', conversationId);
-}
-
-async function extractAndSaveMemories(userId: string, userMsg: string, assistantMsg: string) {
-  const admin = createAdminClient();
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!admin || !apiKey) return;
-
-  // Check for explicit "remember" instruction
-  const rememberMatch = userMsg.match(/remember\s+(?:that\s+)?(.+)/i);
-  if (rememberMatch) {
-    await admin.from('memories').insert({
-      user_id: userId,
-      category: 'instruction',
-      content: rememberMatch[1].trim(),
-      importance: 0.9,
-      source: 'explicit',
-    });
-    return;
-  }
-
+  if (!admin) return 0;
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-20250414",
-        max_tokens: 500,
-        messages: [{
-          role: "user",
-          content: `Extract any facts, preferences, or important information about the user from this conversation turn. Return as a JSON array of objects with {category, content, importance} where category is one of: preference, fact, relationship, instruction. importance is 0-1. Only include genuinely useful, non-obvious info. If nothing worth remembering, return [].
-
-User: ${userMsg}
-Assistant: ${assistantMsg}`,
-        }],
-      }),
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    const text = data.content?.[0]?.text || '';
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return;
-    const memories = JSON.parse(jsonMatch[0]);
-    for (const mem of memories) {
-      if (mem.content && mem.category) {
-        // Check if similar memory already exists
-        const { data: existing } = await admin.from('memories')
-          .select('id, reinforcement_count')
-          .eq('user_id', userId)
-          .ilike('content', `%${mem.content.slice(0, 50)}%`)
-          .limit(1);
-        if (existing && existing.length > 0) {
-          // Reinforce existing memory
-          await admin.from('memories').update({
-            reinforcement_count: existing[0].reinforcement_count + 1,
-            last_accessed_at: new Date().toISOString(),
-          }).eq('id', existing[0].id);
-        } else {
-          await admin.from('memories').insert({
-            user_id: userId,
-            category: mem.category,
-            content: mem.content,
-            importance: mem.importance || 0.5,
-            source: 'inferred',
-          });
-        }
-      }
-    }
-  } catch (e) {
-    console.error('Memory extraction error:', e);
+    const { count } = await admin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId);
+    return count || 0;
+  } catch {
+    return 0;
   }
 }
 
-async function trackUsageInDB(userId: string, model: string, tokensIn: number, tokensOut: number, conversationId?: string) {
+/**
+ * Summarize older messages in conversation for context window management.
+ */
+async function getConversationSummary(conversationId: string, beforeOffset: number = 20): Promise<string> {
   const admin = createAdminClient();
-  if (!admin) return;
-  // Calculate cost (approximate)
-  const costPer1kIn = model.includes('opus') ? 0.015 : 0.003;
-  const costPer1kOut = model.includes('opus') ? 0.075 : 0.015;
-  const costCents = ((tokensIn / 1000) * costPer1kIn + (tokensOut / 1000) * costPer1kOut) * 100;
-  await admin.from('usage').insert({
-    user_id: userId,
-    model,
-    input_tokens: tokensIn,
-    output_tokens: tokensOut,
-    cost_cents: costCents,
-    conversation_id: conversationId || null,
-  });
+  if (!admin) return "";
+
+  // Get older messages beyond the recent window
+  const { data } = await admin
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .range(0, Math.max(0, beforeOffset - 21)); // Messages before the last 20
+
+  if (!data || data.length < 3) return ""; // Not enough old messages to summarize
+
+  // Create a quick summary from old messages
+  const oldMessages = data.map(m => `${m.role}: ${(m.content || "").slice(0, 100)}`).join("\n");
+  return `\n[Earlier in this conversation: ${oldMessages.slice(0, 500)}...]`;
 }
 
-function buildSystemPrompt(context: any, memoryBlock: string) {
-  const integrations = context?.integrations || [];
+function buildSystemPrompt(
+  context: any,
+  memoryBlock: string,
+  integrations: string[],
+  topMemories: string[],
+  usageStats: { requests: number; totalTokens: number; costCents: number } | null,
+  conversationSummary: string
+) {
   const profile = context?.userProfile || {};
   const tz = context?.timezone || profile?.timezone || "UTC";
   const time = context?.time || new Date().toISOString();
@@ -239,25 +154,59 @@ function buildSystemPrompt(context: any, memoryBlock: string) {
     if (skill) prompt += `\n\n${skill}`;
   }
 
+  // ── Self-Awareness: Capabilities ──
+  prompt += `\n\n## Your Capabilities`;
+
+  const integrationStatus: Record<string, { label: string; capabilities: string }> = {
+    google: { label: "Google (Gmail, Calendar, Drive)", capabilities: "read emails, send emails, archive, view calendar, list files" },
+    notion: { label: "Notion", capabilities: "search pages" },
+    slack: { label: "Slack", capabilities: "list channels, send messages" },
+    tiktok: { label: "TikTok Shop", capabilities: "view orders, analytics" },
+  };
+
+  prompt += `\nYou are connected to:`;
+  for (const [key, info] of Object.entries(integrationStatus)) {
+    const connected = integrations.includes(key);
+    prompt += `\n- ${info.label}: ${connected ? `✓ (${info.capabilities})` : "✗ not connected"}`;
+  }
+  prompt += `\n- Web Search: ✓ always available`;
+
+  prompt += `\n\nYou can display: metrics, lists, charts (line/bar/radial), images, tables, timelines, search results, rich text.`;
+
+  // Top memories summary
+  if (topMemories.length > 0) {
+    prompt += `\n\nYou remember:`;
+    for (const mem of topMemories) {
+      prompt += `\n- ${mem}`;
+    }
+  }
+
+  // Usage stats
+  if (usageStats && usageStats.requests > 0) {
+    prompt += `\n\nToday's usage: ${usageStats.requests} requests, ~${Math.round(usageStats.totalTokens / 1000)}K tokens, $${(usageStats.costCents / 100).toFixed(4)}`;
+  }
+
+  // ── Context ──
   prompt += `\n\n## Context\n- Time: ${time} (${tz})`;
   if (profile?.name) prompt += `\n- User: ${profile.name}`;
-  if (integrations.length) prompt += `\n- Connected: ${integrations.join(", ")}`;
-  else prompt += `\n- No integrations connected`;
+  if (profile?.role) prompt += `\n- Role: ${profile.role}`;
 
+  // Conversation summary (older messages)
+  if (conversationSummary) {
+    prompt += `\n${conversationSummary}`;
+  }
+
+  // Full memory block
   if (memoryBlock) prompt += memoryBlock;
 
-  return prompt;
-}
+  // Self-improvement guidelines
+  prompt += `\n\n## Guidelines
+- When uncertain, say so clearly rather than guessing.
+- If a tool call fails, analyze why and try an alternative approach.
+- If the user corrects you, acknowledge the correction gracefully.
+- Remember user preferences and adapt your communication style.`;
 
-function selectModel(msg: string): string {
-  const lower = msg.toLowerCase();
-  const opusPatterns = [
-    /\b(analy[sz]e|compare|evaluate|research|investigate|explain)\b/,
-    /\b(strateg|plan|architect|design|brainstorm)\b/,
-    /\b(write|draft|compose).{0,20}(report|proposal|document)/,
-  ];
-  if (opusPatterns.some(p => p.test(lower)) || lower.length > 300) return "claude-opus-4-6";
-  return "claude-sonnet-4-6";
+  return prompt;
 }
 
 async function executeTool(
@@ -276,7 +225,6 @@ async function executeTool(
         const refreshed = await refreshAccessToken(tokens.refresh);
         if (refreshed.access_token) {
           accessToken = refreshed.access_token;
-          // Update DB with new token
           if (userId) await updateGoogleTokenInDB(userId, accessToken);
           return await fn(accessToken);
         }
@@ -359,7 +307,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "No API key configured" }, { status: 500 });
   }
 
-  // Get authenticated user (if Supabase configured)
+  // Get authenticated user
   const user = await getUserFromRequest();
 
   // Get Google tokens: prefer DB, fall back to request body
@@ -369,23 +317,39 @@ export async function POST(req: NextRequest) {
     if (dbTokens?.access) tokens = { access: dbTokens.access, refresh: dbTokens.refresh || '' };
   }
 
-  // Load memories from DB
-  const memoryBlock = user ? await loadMemories(user.id) : '';
+  // ── Parallel data loading for system prompt ──
+  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary] = await Promise.all([
+    user ? loadUserMemories(user.id, 20, message) : Promise.resolve(""),
+    user ? loadTopMemorySummary(user.id) : Promise.resolve([]),
+    user ? loadUserIntegrations(user.id) : Promise.resolve([]),
+    user ? getTodayUsageStats(user.id) : Promise.resolve(null),
+    (user && clientConversationId) ? getConversationSummary(clientConversationId) : Promise.resolve(""),
+  ]);
 
   // Load conversation history from DB if available
   let conversationId = clientConversationId;
   let dbHistory: { role: string; content: string }[] = [];
+  let isFirstMessage = true;
   if (user && conversationId) {
-    dbHistory = await loadConversationHistory(conversationId);
+    const [hist, msgCount] = await Promise.all([
+      loadConversationHistory(conversationId),
+      getConversationMessageCount(conversationId),
+    ]);
+    dbHistory = hist;
+    isFirstMessage = msgCount === 0;
   }
 
-  const enrichedContext = { ...context, userProfile: userProfile || {} };
-  const systemPrompt = buildSystemPrompt(enrichedContext, memoryBlock);
+  const enrichedContext = { ...context, userProfile: userProfile || {}, integrations };
+  const systemPrompt = buildSystemPrompt(
+    enrichedContext, memoryBlock, integrations, topMemories, usageStats, conversationSummary
+  );
 
   // Combine DB history with client history, preferring DB
   const baseHistory = dbHistory.length > 0 ? dbHistory : (history || []);
   const messages = [...baseHistory, { role: "user", content: message }];
-  const model = selectModel(message);
+
+  // Smart model routing
+  const { model, intent } = selectModel(message);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -401,6 +365,8 @@ export async function POST(req: NextRequest) {
         let totalTokensOut = 0;
         let finalSpoken = "";
         let finalCards: any[] = [];
+        const toolsUsed: string[] = [];
+        let hadErrors = false;
 
         while (maxIterations-- > 0) {
           const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -434,12 +400,11 @@ export async function POST(req: NextRequest) {
 
           const displayCall = toolUses.find((t: any) => t.name === "display");
           if (displayCall) {
-            const { spoken, intent, layout, elements } = displayCall.input;
+            const { spoken, intent: sceneIntent, layout, elements } = displayCall.input;
             finalSpoken = spoken || "";
-            // Build V4 scene
             const scene = {
               id: `scene-${Date.now()}`,
-              intent: intent || "",
+              intent: sceneIntent || "",
               layout: layout || "focused",
               elements: (elements || []).map((el: any) => ({
                 ...el,
@@ -448,13 +413,13 @@ export async function POST(req: NextRequest) {
               })),
               spoken: finalSpoken,
             };
-            finalCards = scene.elements; // for DB storage
+            finalCards = scene.elements;
             send({ type: "scene", scene });
             send({ type: "done", text: finalSpoken });
             break;
           }
 
-          // Backward compat: render_cards from old prompts
+          // Backward compat: render_cards
           const renderCall = toolUses.find((t: any) => t.name === "render_cards");
           if (renderCall) {
             const { spoken, cards } = renderCall.input;
@@ -490,6 +455,7 @@ export async function POST(req: NextRequest) {
           currentMessages = [...currentMessages, { role: "assistant", content: data.content }];
 
           for (const tool of toolUses) {
+            toolsUsed.push(tool.name);
             const statusMap: Record<string, string> = {
               fetch_emails: "Checking your emails...",
               fetch_calendar: "Looking at your calendar...",
@@ -509,28 +475,41 @@ export async function POST(req: NextRequest) {
                 content: JSON.stringify(result),
               });
             } catch (err: any) {
+              hadErrors = true;
+              const errorMsg = err.message || "Tool execution failed";
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tool.id,
-                content: JSON.stringify({ error: err.message || "Tool execution failed" }),
+                content: JSON.stringify({
+                  error: errorMsg,
+                  hint: "Analyze this error and try an alternative approach if possible.",
+                }),
                 is_error: true,
               });
+              // Record error for future learning
+              if (user) {
+                recordToolError(user.id, tool.name, errorMsg, JSON.stringify(tool.input).slice(0, 200)).catch(() => {});
+              }
             }
           }
 
           currentMessages = [...currentMessages, { role: "user", content: toolResults }];
         }
 
-        // ── Post-response async tasks (don't block the stream) ──
+        // ── Background tasks (fire-and-forget, non-blocking) ──
         if (user) {
-          // Save messages to DB
-          if (conversationId) {
-            saveMessages(conversationId, message, finalSpoken, finalCards, model, totalTokensIn, totalTokensOut).catch(console.error);
-          }
-          // Track usage
-          trackUsageInDB(user.id, model, totalTokensIn, totalTokensOut, conversationId).catch(console.error);
-          // Extract memories (async, fire-and-forget)
-          extractAndSaveMemories(user.id, message, finalSpoken).catch(console.error);
+          runBackgroundTasks({
+            userId: user.id,
+            conversationId,
+            userMessage: message,
+            assistantResponse: finalSpoken,
+            model,
+            tokensIn: totalTokensIn,
+            tokensOut: totalTokensOut,
+            toolsUsed,
+            hadErrors,
+            isFirstMessage,
+          });
         }
       } catch (err: any) {
         controller.enqueue(

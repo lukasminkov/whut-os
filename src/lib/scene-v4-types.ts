@@ -12,7 +12,10 @@ export type PrimitiveType =
   | "table"
   | "timeline"
   | "search-results"
-  | "embed";
+  | "embed"
+  | "chart-radar"
+  | "chart-candlestick"
+  | "chart-gauge";
 
 export type LayoutMode = "ambient" | "focused" | "split" | "immersive" | "minimal";
 export type ElementPriority = 1 | 2 | 3;
