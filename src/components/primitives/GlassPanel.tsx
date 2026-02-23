@@ -44,7 +44,7 @@ export default function GlassPanel({
 
   return (
     <div
-      className={`group relative rounded-xl overflow-hidden transition-all duration-300 ${
+      className={`group relative rounded-xl overflow-hidden transition-all duration-200 pointer-events-auto ${
         hovered ? "border-white/[0.14]" : "border-white/[0.08]"
       } ${className}`}
       style={{

@@ -40,7 +40,7 @@ export default function ParticleBackground() {
   if (!ready) return null;
 
   return (
-    <div className="absolute inset-0 z-0 pointer-events-auto">
+    <div className="absolute inset-0 z-0 pointer-events-none">
       <Particles id="hud-particles" options={options as any} className="w-full h-full" />
     </div>
   );

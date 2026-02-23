@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useSyncExternalStore, lazy, Suspense } from "react";
 import { AnimatePresence, motion, LayoutGroup } from "framer-motion";
-import { X } from "lucide-react";
+import { X, ArrowLeft } from "lucide-react";
 import type { Scene, SceneElement } from "@/lib/scene-v4-types";
 import { solveLayout, getElementGridProps, getContentMaxWidth } from "@/lib/layout-solver-v4";
 import * as SceneManager from "@/lib/scene-manager";
@@ -74,13 +74,13 @@ function SceneElementView({
       style={gridProps}
       initial={{ opacity: 0, scale: 0.93, x: slideX, y: slideX === 0 ? 20 : 0 }}
       animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: -12 }}
+      exit={{ opacity: 0, scale: 0.95, y: -8, transition: { duration: 0.12, ease: "easeOut" } }}
       transition={{
         type: "spring",
-        damping: 22,
-        stiffness: 180,
-        delay: index * 0.07,
-        layout: { type: "spring", damping: 20, stiffness: 150 },
+        damping: 28,
+        stiffness: 300,
+        delay: index * 0.04,
+        layout: { type: "spring", damping: 25, stiffness: 200 },
       }}
     >
       <GlassPanel
@@ -119,19 +119,16 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Scene transition pulse
+  // Scene transition pulse + apply
   useEffect(() => {
     if (prevSceneId.current !== scene.id) {
       setShowPulse(true);
-      const t = setTimeout(() => setShowPulse(false), 900);
+      const t = setTimeout(() => setShowPulse(false), 600);
       prevSceneId.current = scene.id;
+      SceneManager.applyScene(scene);
       return () => clearTimeout(t);
     }
-    SceneManager.applyScene(scene);
-  }, [scene]);
-
-  useEffect(() => {
-    SceneManager.applyScene(scene);
+    SceneManager.applyScene(scene, false);
   }, [scene]);
 
   const visibleElements = SceneManager.getVisibleElements();
@@ -160,6 +157,12 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
       >
         <div className="flex items-center gap-3">
           <div className="hidden md:block w-[80px] shrink-0" />
+          {SceneManager.canGoBack() && (
+            <button onClick={() => SceneManager.goBack()}
+              className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-2 py-1.5 rounded-lg hover:bg-white/[0.04]">
+              <ArrowLeft size={10} /><span>Back</span>
+            </button>
+          )}
           {scene.intent && (
             <span className="text-[11px] uppercase tracking-[0.25em] text-white/30 truncate">
               {scene.intent}

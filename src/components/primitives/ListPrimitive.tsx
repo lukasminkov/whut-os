@@ -8,7 +8,7 @@ import type { ListData, ListItem } from "@/lib/scene-v4-types";
 function ListItemRow({ item, index, onSelect }: { item: ListItem; index: number; onSelect: (item: ListItem) => void }) {
   return (
     <motion.button
-      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors group/item"
+      className="w-full flex items-start gap-3 px-3 py-3 rounded-lg text-left hover:bg-white/[0.06] active:bg-white/[0.08] transition-colors group/item border-b border-white/[0.03] last:border-0 pointer-events-auto cursor-pointer"
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.04, duration: 0.3 }}
