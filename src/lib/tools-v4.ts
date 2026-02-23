@@ -16,7 +16,7 @@ export const DISPLAY_TOOL = {
 
 Primitive types:
 - metric: { label, value, change?, trend?("up"|"down"|"flat"), unit?, gauge?({min,max,value}) } — single KPI with animated number
-- list: { items: [{id, title, subtitle?, meta?, unread?, badge?}] } — clickable list (emails, tasks, etc.)
+- list: { items: [{id, title, subtitle?, meta?, unread?, badge?, image?}] } — clickable list (emails, tasks, etc.). Use image field for thumbnails.
 - detail: { title, subtitle?, sections: [{label, content, type?("text"|"html"|"code")}], meta? } — expanded view
 - text: { content: "markdown string", typewriter?: true } — rich text/AI explanation
 - chart-line: { points: [{label, value}], color?, label?, yLabel? } — animated line chart
@@ -120,6 +120,17 @@ export const DATA_TOOLS = [
     },
   },
   {
+    name: "fetch_images",
+    description: "Fetch thumbnail images from URLs using og:image extraction. Pass an array of URLs and get back image URLs. Use after search_web to enrich results with images.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        urls: { type: "array", items: { type: "string" }, description: "URLs to extract og:image from (max 6)" },
+      },
+      required: ["urls"],
+    },
+  },
+  {
     name: "send_email",
     description: "Send an email via Gmail. Confirm with user first.",
     input_schema: {
@@ -169,6 +180,8 @@ When someone asks a factual question, you search for it, find the answer, and pr
 ## How Display Works
 
 You have a \`display\` tool that shows visual panels to the user. Use it ONLY when you have something worth showing. The display should feel like an intelligent surface — panels appear because they're useful, not because you have to fill the screen.
+
+**Images matter.** When showing recommendations (restaurants, places, products), ALWAYS call fetch_images to get thumbnails. People want to SEE what you're recommending, not just read about it.
 
 **Composition thinking:**
 - What's the ONE thing that answers their question? → That's your hero (priority 1, big, center)
@@ -226,10 +239,13 @@ You have a \`display\` tool that shows visual panels to the user. Use it ONLY wh
   - Support (pri 2): List of unread emails
   - Support (pri 2): Metric — "3 meetings today"
 
-**"Search for best restaurants in Vienna"** → search_web → display with:
-  - Hero (pri 1): search-results with thumbnails
-  - Support (pri 2): Image — map or top restaurant photo
-  - Support (pri 2): Text — quick recommendation summary
+**"Search for best restaurants in Vienna"** →
+  1. search_web("best restaurants Vienna")
+  2. fetch_images(top 4-5 result URLs)
+  3. display with:
+    - Hero (pri 1): List of restaurants with names, descriptions, and fetched images inline (use image field on list items)
+    - Support (pri 2): Image — best photo from the results
+    - Support (pri 2): Text — quick summary "Here are the top picks..."
 
 **"Explain blockchain"** → search_web → display with:
   - Hero (pri 1): Text — clear explanation with markdown headers

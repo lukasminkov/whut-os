@@ -72,6 +72,7 @@ export interface ListItem {
   subtitle?: string;
   meta?: string;
   icon?: string;
+  image?: string;
   unread?: boolean;
   badge?: string;
 }

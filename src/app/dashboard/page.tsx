@@ -16,50 +16,12 @@ const MAX_HISTORY = 40;
 // ── Skeleton scene shown while AI is thinking ──
 function SkeletonScene() {
   return (
-    <div className="relative z-30 w-full h-full flex items-start justify-center pt-16">
-      <div className="w-full max-w-[1100px] px-4 md:px-8">
-        <div className="grid grid-cols-[1fr_2fr_1fr] gap-4">
-          {/* Left supporter skeleton */}
-          <div
-            className="rounded-2xl animate-pulse h-[200px] p-4"
-            style={{
-              background: "rgba(255,255,255,0.03)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
-            }}
-          >
-            <div className="bg-white/[0.04] rounded-lg h-3 w-24 mb-3" />
-            <div className="bg-white/[0.04] rounded-lg h-5 w-16" />
-          </div>
-          {/* Hero skeleton */}
-          <div
-            className="rounded-2xl animate-pulse h-[320px] flex flex-col gap-4 p-6 row-span-2"
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderTop: "2px solid rgba(0,212,170,0.4)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3), 0 0 60px rgba(0,212,170,0.08)",
-            }}
-          >
-            <div className="bg-white/[0.04] rounded-lg h-4 w-32" />
-            <div className="bg-white/[0.04] rounded-lg h-6 w-48" />
-            <div className="flex-1 bg-white/[0.04] rounded-lg" />
-          </div>
-          {/* Right supporter skeleton */}
-          <div
-            className="rounded-2xl animate-pulse h-[200px] p-4"
-            style={{
-              background: "rgba(255,255,255,0.03)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
-            }}
-          >
-            <div className="bg-white/[0.04] rounded-lg h-3 w-24 mb-3" />
-            <div className="bg-white/[0.04] rounded-lg h-5 w-16" />
-          </div>
+    <div className="relative z-30 w-full h-full flex items-center justify-center">
+      <div className="flex flex-col items-center gap-6 opacity-40">
+        <div className="flex gap-3">
+          <div className="w-2 h-2 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "0ms" }} />
+          <div className="w-2 h-2 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "150ms" }} />
+          <div className="w-2 h-2 rounded-full bg-white/30 animate-pulse" style={{ animationDelay: "300ms" }} />
         </div>
       </div>
     </div>

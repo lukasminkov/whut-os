@@ -15,10 +15,19 @@ function ListItemRow({ item, index, onSelect }: { item: ListItem; index: number;
       onClick={() => onSelect(item)}
       whileHover={{ x: 2 }}
     >
+      {item.image && (
+        <img
+          src={item.image}
+          alt={item.title}
+          className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      )}
+
       {item.unread && (
         <Circle size={6} className="mt-2 flex-shrink-0 fill-[#00d4aa] text-[#00d4aa]" />
       )}
-      {!item.unread && <div className="w-[6px] flex-shrink-0" />}
+      {!item.unread && !item.image && <div className="w-[6px] flex-shrink-0" />}
 
       <div className="flex-1 min-w-0">
         <p className={`text-sm truncate ${item.unread ? "text-white/90 font-semibold" : "text-white/70"}`}>

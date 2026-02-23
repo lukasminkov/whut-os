@@ -283,6 +283,21 @@ async function executeTool(
       await withRefresh(t => archiveEmail(t, input.id));
       return { result: { success: true }, status: "Archived email" };
     }
+    case "fetch_images": {
+      const urls = (input.urls || []).slice(0, 6);
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai";
+      const results = await Promise.allSettled(
+        urls.map(async (url: string) => {
+          const res = await fetch(`${baseUrl}/api/image-proxy?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(5000) });
+          const data = await res.json();
+          return { url, image: data.image || null };
+        })
+      );
+      const images = results.map((r: PromiseSettledResult<{ url: string; image: string | null }>, i: number) =>
+        r.status === "fulfilled" ? r.value : { url: urls[i], image: null }
+      );
+      return { result: { images }, status: "Fetched images" };
+    }
     default:
       return { result: { error: `Unknown tool: ${name}` } };
   }
@@ -464,6 +479,7 @@ export async function POST(req: NextRequest) {
               send_email: "Sending email...",
               get_email: "Reading email...",
               archive_email: "Archiving...",
+              fetch_images: "Fetching images...",
             };
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
 
