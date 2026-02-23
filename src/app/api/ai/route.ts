@@ -19,7 +19,7 @@ import { loadUserMemories, loadTopMemorySummary } from "@/lib/memory";
 import { selectModel } from "@/lib/model-router";
 import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
 import { recordToolError, detectReask } from "@/lib/self-improve";
-import { generateEmbedding, searchMemoriesByVector, searchMemoriesByText } from "@/lib/embeddings";
+import { searchMemoriesSemantic } from "@/lib/embeddings";
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -364,29 +364,20 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Parallel data loading for system prompt ──
-  // Generate embedding for vector memory search (parallel with other loads)
-  const embeddingPromise = user ? generateEmbedding(message) : Promise.resolve(null);
-
-  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary, queryEmbedding] = await Promise.all([
+  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary, relevantMemories] = await Promise.all([
     user ? loadUserMemories(user.id, 20, message) : Promise.resolve(""),
     user ? loadTopMemorySummary(user.id) : Promise.resolve([]),
     user ? loadUserIntegrations(user.id) : Promise.resolve([]),
     user ? getTodayUsageStats(user.id) : Promise.resolve(null),
     (user && clientConversationId) ? getConversationSummary(clientConversationId) : Promise.resolve(""),
-    embeddingPromise,
+    user ? searchMemoriesSemantic(createAdminClient(), user.id, message, 10) : Promise.resolve([]),
   ]);
 
-  // If vector search available, find semantically relevant memories
-  let vectorMemoryBlock = "";
-  if (user && queryEmbedding) {
-    const admin = createAdminClient();
-    if (admin) {
-      const vectorResults = await searchMemoriesByVector(admin, user.id, queryEmbedding, 10);
-      if (vectorResults.length > 0) {
-        vectorMemoryBlock = "\n## Semantically relevant memories:\n" +
-          vectorResults.map((m: any) => `- ${m.content} (relevance: ${(m.similarity * 100).toFixed(0)}%)`).join("\n");
-      }
-    }
+  // Build relevant memories block from full-text search
+  let relevantMemoryBlock = "";
+  if (relevantMemories.length > 0) {
+    relevantMemoryBlock = "\n## Relevant memories:\n" +
+      relevantMemories.map((m: any) => `- ${m.fact || m.content}`).join("\n");
   }
 
   // Load conversation history from DB if available
@@ -406,8 +397,8 @@ export async function POST(req: NextRequest) {
   let systemPrompt = buildSystemPrompt(
     enrichedContext, memoryBlock, integrations, topMemories, usageStats, conversationSummary
   );
-  if (vectorMemoryBlock) {
-    systemPrompt += vectorMemoryBlock;
+  if (relevantMemoryBlock) {
+    systemPrompt += relevantMemoryBlock;
   }
 
   // Detect rephrase (user correcting themselves)
