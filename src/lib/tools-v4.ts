@@ -127,6 +127,17 @@ export const DATA_TOOLS = [
     },
   },
   {
+    name: "read_page",
+    description: "Fetch and read the content of a web page. Returns the main text content (cleaned HTML). Use when search snippets aren't enough and you need to read an article for detailed information.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL to read" },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "send_email",
     description: "Send an email via Gmail. Confirm with user first.",
     input_schema: {
@@ -196,4 +207,5 @@ Be fast. One search call, then display. Never chain multiple searches. A good an
 - Create redundant panels (inbox + unread count = one panel with the count in the title)
 - Narrate data that's visible on screen
 - Chain multiple tool calls when one would do
+- When search snippets aren't enough to answer properly, use read_page to actually read the source. Don't guess from a snippet.
 `;

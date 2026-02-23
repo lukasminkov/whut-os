@@ -152,5 +152,23 @@ CREATE POLICY "Allow insert for service" ON public.usage FOR INSERT WITH CHECK (
 CREATE INDEX idx_usage_user ON public.usage(user_id, created_at DESC);
 
 -- ═══════════════════════════════════════════
+-- 6. INTERACTIONS (self-improvement tracking)
+-- ═══════════════════════════════════════════
+
+CREATE TABLE public.interactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL, -- 'dismiss', 'expand', 'rephrase'
+  element_id TEXT,
+  element_type TEXT,
+  data JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.interactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all for interactions" ON public.interactions FOR ALL WITH CHECK (true);
+
+CREATE INDEX idx_interactions_type ON public.interactions(type, created_at DESC);
+
+-- ═══════════════════════════════════════════
 -- DONE
 -- ═══════════════════════════════════════════

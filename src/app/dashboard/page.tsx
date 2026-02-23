@@ -10,6 +10,7 @@ import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useTTS } from "@/hooks/useTTS";
+import { ImagePlus, X } from "lucide-react";
 
 const MAX_HISTORY = 40;
 
@@ -49,6 +50,8 @@ export default function DashboardPage() {
     return "chat";
   });
   const [speechActive, setSpeechActive] = useState(false);
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── User Profile & Onboarding ──
   const [userProfile, setUserProfile] = useState<{
@@ -128,6 +131,8 @@ export default function DashboardPage() {
   const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
     setInput("");
+    const imagesToSend = [...pendingImages];
+    setPendingImages([]);
     setThinking(true);
     setStatusText(null);
 
@@ -149,6 +154,7 @@ export default function DashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: trimmed,
+          images: imagesToSend.length > 0 ? imagesToSend : undefined,
           history: chatHistory,
           googleAccessToken: googleTokens.access_token || null,
           googleRefreshToken: googleTokens.refresh_token || null,
@@ -282,7 +288,7 @@ export default function DashboardPage() {
       setStatusText(null);
       if (speechLoopRef.current) voice.startListening();
     }
-  }, [chatHistory, userProfile, tts, conversationId]);
+  }, [chatHistory, userProfile, tts, conversationId, pendingImages]);
 
   const handleSubmit = () => { const t = input.trim(); if (t) sendToAI(t); };
 
@@ -484,13 +490,59 @@ export default function DashboardPage() {
             transition={{ duration: 0.2 }}
           >
             <ModeToggle mode={appMode} onToggle={toggleMode} />
+            <div className="flex-1 flex flex-col">
+              {/* Image thumbnails */}
+              {pendingImages.length > 0 && (
+                <div className="flex gap-1 px-3 pt-2 pb-1">
+                  {pendingImages.map((img, i) => (
+                    <div key={i} className="relative w-10 h-10 rounded overflow-hidden border border-white/10">
+                      <img src={img} alt="" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-black/80 rounded-full flex items-center justify-center cursor-pointer"
+                      >
+                        <X size={10} className="text-white/70" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
+                placeholder="Ask WHUT OS..."
+                className="glass-input w-full px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40"
+              />
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-white/30 hover:text-white/60 transition cursor-pointer"
+              title="Attach image"
+            >
+              <ImagePlus size={18} />
+            </button>
             <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
-              placeholder="Ask WHUT OS..."
-              className="glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                Promise.all(
+                  files.map(
+                    (f) =>
+                      new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.readAsDataURL(f);
+                      })
+                  )
+                ).then((imgs) => setPendingImages((prev) => [...prev, ...imgs]));
+                if (e.target) e.target.value = "";
+              }}
             />
             <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.15em] cursor-pointer">→</button>
           </motion.div>

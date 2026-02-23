@@ -7,7 +7,33 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Missing q parameter" }, { status: 400 });
   }
 
-  // Try Brave API first (if key exists)
+  // Try Serper.dev first (Google results, free tier)
+  const serperKey = process.env.SERPER_API_KEY;
+  if (serperKey) {
+    try {
+      const res = await fetch("https://google.serper.dev/search", {
+        method: "POST",
+        headers: {
+          "X-API-KEY": serperKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ q: query, num: 8 }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const results = (data.organic || []).slice(0, 8).map((r: any) => ({
+          title: r.title,
+          snippet: r.snippet || "",
+          url: r.link,
+          image: r.imageUrl || r.thumbnail || null,
+        }));
+        if (results.length > 0) return Response.json({ results, query });
+      }
+    } catch {}
+  }
+
+  // Try Brave API (if key exists)
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
   if (braveKey) {
     try {

@@ -297,6 +297,16 @@ async function executeTool(
       await withRefresh(t => archiveEmail(t, input.id));
       return { result: { success: true }, status: "Archived email" };
     }
+    case "read_page": {
+      const pageUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai"}/api/read-page?url=${encodeURIComponent(input.url)}`;
+      try {
+        const res = await fetch(pageUrl, { signal: AbortSignal.timeout(10000) });
+        const data = await res.json();
+        return { result: data, status: `Reading ${new URL(input.url).hostname}...` };
+      } catch {
+        return { result: { error: "Could not read page" }, status: "Read failed" };
+      }
+    }
     default:
       return { result: { error: `Unknown tool: ${name}` } };
   }
@@ -308,6 +318,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     message,
+    images,
     history,
     googleAccessToken,
     googleRefreshToken,
@@ -315,6 +326,26 @@ export async function POST(req: NextRequest) {
     userProfile,
     conversationId: clientConversationId,
   } = body;
+
+  // Build user message content (with optional images for vision)
+  let userContent: any;
+  if (images && images.length > 0) {
+    userContent = [
+      ...images.map((img: string) => ({
+        type: "image",
+        source: img.startsWith("data:")
+          ? {
+              type: "base64" as const,
+              media_type: img.split(";")[0].split(":")[1],
+              data: img.split(",")[1],
+            }
+          : { type: "url" as const, url: img },
+      })),
+      { type: "text", text: message },
+    ];
+  } else {
+    userContent = message;
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -358,9 +389,27 @@ export async function POST(req: NextRequest) {
     enrichedContext, memoryBlock, integrations, topMemories, usageStats, conversationSummary
   );
 
+  // Detect rephrase (user correcting themselves)
+  const prevUserMessages = (dbHistory.length > 0 ? dbHistory : (history || []))
+    .filter((m: any) => m.role === "user");
+  const lastUserMsg = prevUserMessages.length > 0 ? prevUserMessages[prevUserMessages.length - 1].content : "";
+  const rephrasePatterns = /^(no[, ]|actually[, ]|i meant|i said|not that|what i meant)/i;
+  const isRephrase = rephrasePatterns.test(message) || (
+    lastUserMsg && message.length > 5 && lastUserMsg.length > 5 &&
+    message.slice(0, 20).toLowerCase() === lastUserMsg.slice(0, 20).toLowerCase() &&
+    message !== lastUserMsg
+  );
+  if (isRephrase) {
+    fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai"}/api/track`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "rephrase", elementId: null, elementType: "message", previousMessage: lastUserMsg, newMessage: message }),
+    }).catch(() => {});
+  }
+
   // Combine DB history with client history, preferring DB
   const baseHistory = dbHistory.length > 0 ? dbHistory : (history || []);
-  const messages = [...baseHistory, { role: "user", content: message }];
+  const messages = [...baseHistory, { role: "user", content: userContent }];
 
   // Smart model routing
   const { model, intent } = selectModel(message);
@@ -480,6 +529,7 @@ export async function POST(req: NextRequest) {
               send_email: "Sending email...",
               get_email: "Reading email...",
               archive_email: "Archiving...",
+              read_page: `Reading page...`,
             };
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
 

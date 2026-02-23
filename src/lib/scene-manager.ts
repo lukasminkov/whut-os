@@ -179,6 +179,21 @@ export function dismissElement(id: string) {
   state.dismissedIds.add(id);
   state.elementStates.set(id, "dismissed");
   notify();
+
+  // Track dismissal for self-improvement
+  const element = state.currentScene?.elements.find(el => el.id === id);
+  try {
+    fetch("/api/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "dismiss",
+        elementId: id,
+        elementType: element?.type || "unknown",
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  } catch {}
 }
 
 export function minimizeElement(id: string) {
