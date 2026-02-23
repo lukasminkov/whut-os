@@ -60,9 +60,8 @@ function SceneElementView({
   const visibleElements = SceneManager.getVisibleElements();
   const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
 
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const offsetRef = useRef({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const elementRef = useRef<HTMLDivElement>(null);
 
   const expanded = SceneManager.getExpandedItem();
@@ -90,12 +89,10 @@ function SceneElementView({
   return (
     <motion.div
       ref={elementRef}
-      layout={!isDragging}
+      layout={!isDragging && offsetRef.current.x === 0 && offsetRef.current.y === 0}
       layoutId={element.id}
       style={{
         ...finalGridProps,
-        left: offset.x || undefined,
-        top: offset.y || undefined,
         zIndex: isDragging ? 100 : undefined,
         position: "relative",
         opacity: hasExpanded && !isExpanded ? 0.5 : 1,
@@ -124,18 +121,23 @@ function SceneElementView({
         isDragging={isDragging}
         onDragStart={(e) => {
           setIsDragging(true);
-          dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const startOx = offsetRef.current.x;
+          const startOy = offsetRef.current.y;
 
           const onMove = (ev: PointerEvent) => {
-            if (!dragStart.current) return;
-            setOffset({
-              x: dragStart.current.ox + (ev.clientX - dragStart.current.x),
-              y: dragStart.current.oy + (ev.clientY - dragStart.current.y),
-            });
+            offsetRef.current = {
+              x: startOx + (ev.clientX - startX),
+              y: startOy + (ev.clientY - startY),
+            };
+            if (elementRef.current) {
+              elementRef.current.style.left = `${offsetRef.current.x}px`;
+              elementRef.current.style.top = `${offsetRef.current.y}px`;
+            }
           };
           const onUp = () => {
             setIsDragging(false);
-            dragStart.current = null;
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
           };

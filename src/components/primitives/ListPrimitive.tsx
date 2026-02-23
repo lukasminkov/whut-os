@@ -5,6 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Circle, X } from "lucide-react";
 import type { ListData, ListItem } from "@/lib/scene-v4-types";
 
+function proxyImage(src: string | undefined): string | undefined {
+  if (!src) return undefined;
+  if (src.startsWith("data:")) return src;
+  if (src.startsWith("http")) return `/api/image-proxy?url=${encodeURIComponent(src)}`;
+  return src;
+}
+
 function ExpandedItemView({ item, onClose }: { item: ListItem; onClose: () => void }) {
   const d = item.detail!;
   return (
@@ -17,7 +24,7 @@ function ExpandedItemView({ item, onClose }: { item: ListItem; onClose: () => vo
     >
       {d.image && (
         <div className="relative w-full h-[200px] rounded-xl overflow-hidden mb-4">
-          <img src={d.image} alt={item.title} className="w-full h-full object-cover" />
+          <img src={proxyImage(d.image)!} alt={item.title} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
           <button
             onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -92,7 +99,7 @@ function ListItemRow({ item, index, isCollapsed, onSelect }: { item: ListItem; i
     >
       {item.image && (
         <img
-          src={item.image}
+          src={proxyImage(item.image)!}
           alt={item.title}
           className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

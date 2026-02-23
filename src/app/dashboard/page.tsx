@@ -513,13 +513,13 @@ export default function DashboardPage() {
       {/* Floating Chat Recap Panel */}
       <ChatRecap
         messages={chatMessages}
-        visible={showRecap && chatMessages.length > 0}
+        visible={showRecap && chatMessages.length > 0 && currentScene === null}
         onToggle={() => setShowRecap(prev => !prev)}
       />
 
       {/* Chat recap toggle button (when hidden) */}
       <AnimatePresence>
-        {!showRecap && chatMessages.length > 0 && (
+        {((!showRecap && chatMessages.length > 0) || (currentScene !== null && chatMessages.length > 0)) && (
           <motion.button
             className="fixed right-4 bottom-20 md:right-6 md:bottom-24 z-50 w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer"
             style={{

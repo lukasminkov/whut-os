@@ -128,7 +128,7 @@ export const DATA_TOOLS = [
   },
   {
     name: "read_page",
-    description: "Fetch and read the content of a web page. Returns the main text content (cleaned HTML). Use when search snippets aren't enough and you need to read an article for detailed information.",
+    description: "Fetch and read the full content of a specific web page. Only use this when search snippets aren't sufficient — for example, reading a detailed article, documentation, or report. Do NOT use this for every search result.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -198,6 +198,8 @@ You have a screen. It's your canvas. The \`display\` tool lets you compose visua
 ## Speed
 
 Be fast. One search call, then display. Never chain multiple searches. A good answer in 5 seconds beats a perfect answer in 30.
+
+- Search results from search_web include good snippets. Use those directly — don't call read_page unless the snippets genuinely aren't enough to answer. Most queries (restaurants, facts, news) should be ONE search call → display. read_page is for when you need to understand a full article.
 
 ## What You Never Do
 
