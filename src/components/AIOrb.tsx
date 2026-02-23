@@ -131,32 +131,47 @@ function project(
   };
 }
 
-// ── Strip position for a particle ──
+// ── Strip position for a particle (volumetric cloud) ──
 function getStripPosition(
-  index: number, total: number,
+  particle: Particle, index: number, total: number,
   canvasWidth: number, canvasHeight: number,
   time: number, audioLevel: number,
   state: OrbState
-): { x: number; y: number } {
+): { x: number; y: number; size: number; alpha: number } {
   const progress = index / total;
   const x = progress * canvasWidth;
 
-  // Wave motion — audio reactive
-  const waveAmp = 8 + audioLevel * 25;
-  const waveFreq = 3;
-  const baseY = canvasHeight - 80;
-  const y = baseY + Math.sin(progress * waveFreq * Math.PI * 2 + time * 2) * waveAmp;
+  const baseY = canvasHeight - 90;
 
-  // Fluid jitter
-  const jitter = Math.sin(index * 0.1 + time * 3) * 2;
+  // Parallax: different layers move at different speeds
+  const layerTimeScale = [0.7, 1.0, 1.3][particle.layer];
+  const t = time * layerTimeScale;
 
-  // Listening: breathing pulse
-  let breathOffset = 0;
-  if (state === "listening") {
-    breathOffset = Math.sin(time * 2.5) * 6 * (0.5 + audioLevel);
-  }
+  // Multiple overlapping waves for organic feel
+  const wave1 = Math.sin(progress * 4 * Math.PI + t * 1.5 + particle.stripWaveOffset) * 15;
+  const wave2 = Math.sin(progress * 7 * Math.PI + t * 2.3 + particle.stripWaveOffset * 1.5) * 8;
+  const wave3 = Math.sin(progress * 2 * Math.PI + t * 0.8) * 20;
 
-  return { x, y: y + jitter + breathOffset };
+  // Audio reactivity
+  const audioWave = audioLevel * Math.sin(progress * 6 * Math.PI + t * 4) * 25;
+
+  // Vertical spread based on layer (back=wider, front=tighter)
+  const layerSpread = [35, 22, 12][particle.layer];
+  const verticalOffset = particle.stripYOffset * layerSpread;
+
+  const y = baseY + wave1 + wave2 + wave3 + audioWave + verticalOffset;
+
+  // Size based on layer (back=small, front=large)
+  const baseSize = [1.0, 2.5, 4.5][particle.layer];
+  const sizeAudio = audioLevel * [0.5, 1.0, 2.0][particle.layer];
+  const size = baseSize + sizeAudio;
+
+  // Alpha based on layer (back=dim, front=bright)
+  const baseAlpha = [0.15, 0.35, 0.7][particle.layer];
+  const alphaAudio = audioLevel * 0.2;
+  const alpha = Math.min(1, baseAlpha + alphaAudio);
+
+  return { x, y, size, alpha };
 }
 
 export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
@@ -287,17 +302,30 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         ctx.fillRect(cx - glowR, cy + floatY - glowR, glowR * 2, glowR * 2);
       }
 
-      // ── Strip glow (fades in with morph) ──
+      // ── Strip glow (fades in with morph) — volumetric cloud glow ──
       if (mp > 0.3) {
         const [cr, cg, cb] = a.color;
-        const glowAlpha = (mp - 0.3) * (1 / 0.7) * 0.18;
-        const stripY = h - 80;
-        const gradient = ctx.createLinearGradient(0, stripY - 25, 0, stripY + 25);
-        gradient.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
-        gradient.addColorStop(0.5, `rgba(${cr},${cg},${cb},${glowAlpha})`);
-        gradient.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, stripY - 25, w, 50);
+        const glowAlpha = (mp - 0.3) * 1.4 * 0.2;
+
+        // Wide ambient glow
+        const glow = ctx.createRadialGradient(
+          w / 2, h - 70, 0,
+          w / 2, h - 70, w * 0.6
+        );
+        glow.addColorStop(0, `rgba(${cr},${cg},${cb},${glowAlpha * 0.3})`);
+        glow.addColorStop(0.3, `rgba(${cr},${cg},${cb},${glowAlpha * 0.15})`);
+        glow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, h - 200, w, 200);
+
+        // Tighter glow right at the strip
+        const tightGlow = ctx.createLinearGradient(0, h - 130, 0, h - 50);
+        tightGlow.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
+        tightGlow.addColorStop(0.4, `rgba(${cr},${cg},${cb},${glowAlpha * 0.4})`);
+        tightGlow.addColorStop(0.6, `rgba(${cr},${cg},${cb},${glowAlpha * 0.4})`);
+        tightGlow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.fillStyle = tightGlow;
+        ctx.fillRect(0, h - 130, w, 80);
       }
 
       // ── Speaking wave rings (sphere mode only) ──
@@ -319,10 +347,10 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
       // ── Render particles ──
       const effectiveSpread = a.particleSpread * breathe + audioMod;
 
-      // Reduce active particles in strip mode
-      const activeCount = Math.floor(lerp(PARTICLE_COUNT, 1500, mp));
+      // Use ALL particles — volume needs density
+      const activeCount = PARTICLE_COUNT;
 
-      type Projected = { x: number; y: number; z: number; size: number; brightness: number };
+      type Projected = { x: number; y: number; z: number; size: number; brightness: number; layer: number; particleRef: Particle };
       const projected: Projected[] = [];
 
       for (let i = 0; i < activeCount; i++) {
@@ -338,23 +366,21 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
           cx, cy + floatY, orbRadius
         );
 
-        // Strip position
-        const strip = getStripPosition(i, activeCount, w, h, elapsed, audio, currentState);
+        // Strip position (volumetric)
+        const strip = getStripPosition(p, i, activeCount, w, h, elapsed, audio, currentState);
 
         // Interpolate
         const finalX = lerp(sphere.x, strip.x, mp);
         const finalY = lerp(sphere.y, strip.y, mp);
 
-        // Depth/brightness: in sphere mode use z-depth, in strip mode use uniform
+        // Size: sphere mode uses z-depth, strip mode uses layer-based size
         const depthFactor = (sphere.z + 1.5) / 3;
-        const sphereBrightness = 0.3 + depthFactor * 0.7 + p.brightnessOffset;
-        const stripBrightness = 0.5 + p.brightnessOffset + audio * 0.3;
-        const brightness = lerp(sphereBrightness, stripBrightness, mp);
-
-        // Size: smaller in strip mode
         const sphereSize = p.size * (0.4 + depthFactor * 0.8);
-        const stripSize = lerp(0.6, 1.2, p.rnd);
-        const sz = lerp(sphereSize, stripSize, mp);
+        const sz = lerp(sphereSize, strip.size, mp);
+
+        // Brightness: sphere mode uses z-depth, strip mode uses layer-based alpha
+        const sphereBrightness = 0.3 + depthFactor * 0.7 + p.brightnessOffset;
+        const brightness = lerp(sphereBrightness, strip.alpha, mp);
 
         // In sphere mode, skip back-facing particles; in strip mode show all
         if (mp < 0.5 && !sphere.visible) continue;
@@ -365,12 +391,16 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
           z: sphere.z,
           size: sz,
           brightness: Math.max(0, Math.min(1, brightness)),
+          layer: p.layer,
+          particleRef: p,
         });
       }
 
-      // Sort back-to-front (only matters for sphere mode)
-      if (mp < 0.8) {
+      // Sort: in sphere mode by z-depth, in strip mode by layer (back to front)
+      if (mp < 0.5) {
         projected.sort((a, b) => a.z - b.z);
+      } else {
+        projected.sort((a, b) => a.layer - b.layer);
       }
 
       const [cr, cg, cb] = a.color;
@@ -380,6 +410,19 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         const b = Math.round(cb * pt.brightness);
         const alpha = pt.brightness * 0.85;
 
+        // Glow effect for front-layer particles in strip mode
+        if (mp > 0.5 && pt.layer === 2 && pt.size > 3) {
+          const gradient = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.size * 3);
+          gradient.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.6})`);
+          gradient.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.15})`);
+          gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.size * 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Core particle dot
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
