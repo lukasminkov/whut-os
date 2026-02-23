@@ -1,140 +1,100 @@
 import { NextRequest } from "next/server";
 import { AI_TOOLS_V4, V4_SYSTEM_PROMPT } from "@/lib/tools-v4";
 import {
-  getRecentEmails,
-  getMessage,
-  getUpcomingEvents,
-  getRecentDriveFiles,
-  sendEmail,
-  archiveEmail,
-  refreshAccessToken,
+  getRecentEmails, getMessage, getUpcomingEvents, getRecentDriveFiles,
+  sendEmail, archiveEmail, refreshAccessToken,
 } from "@/lib/google";
-import {
-  SKILL_ONBOARDING,
-  INTEGRATION_SKILLS,
-} from "@/lib/skills";
+import { SKILL_ONBOARDING, INTEGRATION_SKILLS } from "@/lib/skills";
 import { createAdminClient, isSupabaseServerConfigured } from "@/lib/supabase";
 import { createServerClient } from "@/lib/supabase-server";
 import { loadUserMemories, loadTopMemorySummary } from "@/lib/memory";
 import { selectModel } from "@/lib/model-router";
 import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
-import { recordToolError, detectReask } from "@/lib/self-improve";
+import { recordToolError } from "@/lib/self-improve";
 import { searchMemoriesSemantic } from "@/lib/embeddings";
 
 // ── Helpers ──────────────────────────────────────────
 
-async function getUserFromRequest(): Promise<{ id: string; email?: string } | null> {
+async function getUser(): Promise<{ id: string; email?: string } | null> {
   if (!isSupabaseServerConfigured()) return null;
   try {
     const supabase = await createServerClient();
     if (!supabase) return null;
     const { data: { user } } = await supabase.auth.getUser();
     return user ? { id: user.id, email: user.email } : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-async function getGoogleTokensFromDB(userId: string): Promise<{ access?: string; refresh?: string } | null> {
+async function getGoogleTokens(userId: string) {
   const admin = createAdminClient();
   if (!admin) return null;
-  const { data } = await admin
-    .from('integrations')
-    .select('access_token, refresh_token, token_expires_at')
-    .eq('user_id', userId)
-    .eq('provider', 'google')
-    .single();
-  if (!data) return null;
-  return { access: data.access_token, refresh: data.refresh_token || undefined };
+  const { data } = await admin.from('integrations')
+    .select('access_token, refresh_token')
+    .eq('user_id', userId).eq('provider', 'google').single();
+  return data ? { access: data.access_token, refresh: data.refresh_token || "" } : null;
 }
 
-async function updateGoogleTokenInDB(userId: string, newAccessToken: string) {
+async function updateGoogleToken(userId: string, token: string) {
   const admin = createAdminClient();
   if (!admin) return;
   await admin.from('integrations').update({
-    access_token: newAccessToken,
-    token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    access_token: token,
+    token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
     updated_at: new Date().toISOString(),
   }).eq('user_id', userId).eq('provider', 'google');
 }
 
-/**
- * Load connected integrations for a user (for self-awareness).
- */
-async function loadUserIntegrations(userId: string): Promise<string[]> {
+async function loadIntegrations(userId: string): Promise<string[]> {
   const admin = createAdminClient();
   if (!admin) return [];
-  try {
-    const { data } = await admin
-      .from('integrations')
-      .select('provider')
-      .eq('user_id', userId);
-    return (data || []).map(i => i.provider);
-  } catch {
-    return [];
-  }
+  const { data } = await admin.from('integrations').select('provider').eq('user_id', userId);
+  return (data || []).map(i => i.provider);
 }
 
-async function loadConversationHistory(conversationId: string): Promise<{ role: string; content: string }[]> {
+async function loadHistory(conversationId: string): Promise<{ role: string; content: string }[]> {
   const admin = createAdminClient();
   if (!admin) return [];
-  const { data } = await admin
-    .from('messages')
+  const { data } = await admin.from('messages')
     .select('role, content')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(20);
-  if (!data) return [];
-  return data.reverse().map(m => ({ role: m.role, content: m.content }));
+  return data ? data.reverse().map(m => ({ role: m.role, content: m.content })) : [];
 }
 
-/**
- * Get conversation message count (to determine if this is the first message).
- */
-async function getConversationMessageCount(conversationId: string): Promise<number> {
+async function getMessageCount(conversationId: string): Promise<number> {
   const admin = createAdminClient();
   if (!admin) return 0;
-  try {
-    const { count } = await admin
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('conversation_id', conversationId);
-    return count || 0;
-  } catch {
-    return 0;
-  }
+  const { count } = await admin.from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId);
+  return count || 0;
 }
 
-/**
- * Summarize older messages in conversation for context window management.
- */
-async function getConversationSummary(conversationId: string, beforeOffset: number = 20): Promise<string> {
+async function saveMessage(conversationId: string, role: string, content: string, extra?: { scene_data?: any; model?: string; tokens_in?: number; tokens_out?: number }) {
   const admin = createAdminClient();
-  if (!admin) return "";
-
-  // Get older messages beyond the recent window
-  const { data } = await admin
-    .from('messages')
-    .select('role, content')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
-    .range(0, Math.max(0, beforeOffset - 21)); // Messages before the last 20
-
-  if (!data || data.length < 3) return ""; // Not enough old messages to summarize
-
-  // Create a quick summary from old messages
-  const oldMessages = data.map(m => `${m.role}: ${(m.content || "").slice(0, 100)}`).join("\n");
-  return `\n[Earlier in this conversation: ${oldMessages.slice(0, 500)}...]`;
+  if (!admin) return;
+  await admin.from('messages').insert({
+    conversation_id: conversationId,
+    role,
+    content,
+    scene_data: extra?.scene_data || null,
+    model: extra?.model || null,
+    tokens_in: extra?.tokens_in || null,
+    tokens_out: extra?.tokens_out || null,
+  });
+  await admin.from('conversations').update({
+    last_message_at: new Date().toISOString(),
+  }).eq('id', conversationId);
 }
 
-function buildSystemPrompt(
-  context: any,
-  memoryBlock: string,
-  integrations: string[],
-  topMemories: string[],
-  usageStats: { requests: number; totalTokens: number; costCents: number } | null,
-  conversationSummary: string
-) {
+// ── System Prompt Builder ────────────────────────────
+
+function buildSystemPrompt(opts: {
+  context: any; memoryBlock: string; integrations: string[];
+  topMemories: string[]; usageStats: any; relevantMemories: any[];
+}) {
+  const { context, memoryBlock, integrations, topMemories, usageStats, relevantMemories } = opts;
   const profile = context?.userProfile || {};
   const tz = context?.timezone || profile?.timezone || "UTC";
   const time = context?.time || new Date().toISOString();
@@ -155,52 +115,38 @@ function buildSystemPrompt(
     if (skill) prompt += `\n\n${skill}`;
   }
 
-  // ── Self-Awareness: Capabilities ──
-  prompt += `\n\n## Your Capabilities`;
-
-  const integrationStatus: Record<string, { label: string; capabilities: string }> = {
-    google: { label: "Google (Gmail, Calendar, Drive)", capabilities: "read emails, send emails, archive, view calendar, list files" },
-    notion: { label: "Notion", capabilities: "search pages" },
-    slack: { label: "Slack", capabilities: "list channels, send messages" },
-    tiktok: { label: "TikTok Shop", capabilities: "view orders, analytics" },
+  prompt += `\n\n## Your Capabilities\nYou are connected to:`;
+  const caps: Record<string, { label: string; desc: string }> = {
+    google: { label: "Google (Gmail, Calendar, Drive)", desc: "read emails, send emails, archive, view calendar, list files" },
+    notion: { label: "Notion", desc: "search pages" },
+    slack: { label: "Slack", desc: "list channels, send messages" },
+    tiktok: { label: "TikTok Shop", desc: "view orders, analytics" },
   };
-
-  prompt += `\nYou are connected to:`;
-  for (const [key, info] of Object.entries(integrationStatus)) {
-    const connected = integrations.includes(key);
-    prompt += `\n- ${info.label}: ${connected ? `✓ (${info.capabilities})` : "✗ not connected"}`;
+  for (const [key, info] of Object.entries(caps)) {
+    prompt += `\n- ${info.label}: ${integrations.includes(key) ? `✓ (${info.desc})` : "✗ not connected"}`;
   }
   prompt += `\n- Web Search: ✓ always available`;
-
   prompt += `\n\nYou can display: metrics, lists, charts (line/bar/radial), images, tables, timelines, search results, rich text.`;
 
-  // Top memories summary
   if (topMemories.length > 0) {
     prompt += `\n\nYou remember:`;
-    for (const mem of topMemories) {
-      prompt += `\n- ${mem}`;
-    }
+    for (const mem of topMemories) prompt += `\n- ${mem}`;
   }
 
-  // Usage stats
-  if (usageStats && usageStats.requests > 0) {
+  if (usageStats?.requests > 0) {
     prompt += `\n\nToday's usage: ${usageStats.requests} requests, ~${Math.round(usageStats.totalTokens / 1000)}K tokens, $${(usageStats.costCents / 100).toFixed(4)}`;
   }
 
-  // ── Context ──
   prompt += `\n\n## Context\n- Time: ${time} (${tz})`;
   if (profile?.name) prompt += `\n- User: ${profile.name}`;
   if (profile?.role) prompt += `\n- Role: ${profile.role}`;
 
-  // Conversation summary (older messages)
-  if (conversationSummary) {
-    prompt += `\n${conversationSummary}`;
+  if (relevantMemories.length > 0) {
+    prompt += `\n\n## Relevant memories:\n` + relevantMemories.map((m: any) => `- ${m.fact || m.content}`).join("\n");
   }
 
-  // Full memory block
   if (memoryBlock) prompt += memoryBlock;
 
-  // Self-improvement guidelines
   prompt += `\n\n## Guidelines
 - When uncertain, say so clearly rather than guessing.
 - If a tool call fails, analyze why and try an alternative approach.
@@ -210,23 +156,23 @@ function buildSystemPrompt(
   return prompt;
 }
 
+// ── Tool Execution ──────────────────────────────────
+
 async function executeTool(
-  name: string,
-  input: any,
-  tokens: { access?: string; refresh?: string },
+  name: string, input: any,
+  tokens: { access: string; refresh: string },
   userId?: string,
 ): Promise<{ result: any; status?: string }> {
   let accessToken = tokens.access || "";
 
   const withRefresh = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
-    try {
-      return await fn(accessToken);
-    } catch (err: any) {
+    try { return await fn(accessToken); }
+    catch (err: any) {
       if (tokens.refresh && err.message?.includes("401")) {
         const refreshed = await refreshAccessToken(tokens.refresh);
         if (refreshed.access_token) {
           accessToken = refreshed.access_token;
-          if (userId) await updateGoogleTokenInDB(userId, accessToken);
+          if (userId) await updateGoogleToken(userId, accessToken);
           return await fn(accessToken);
         }
       }
@@ -256,8 +202,7 @@ async function executeTool(
     case "fetch_drive_files": {
       const files = await withRefresh(t => getRecentDriveFiles(t, input.maxResults || 15));
       const normalized = files.map((f: any) => ({
-        name: f.name,
-        type: f.mimeType || "",
+        name: f.name, type: f.mimeType || "",
         modified: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : "",
         link: f.webViewLink || "",
       }));
@@ -268,24 +213,19 @@ async function executeTool(
       try {
         const res = await fetch(searchUrl);
         const data = await res.json();
-        if (!data.results || data.results.length === 0) {
+        if (!data.results?.length) {
           return { result: { results: [], query: input.query, error: "No results found." }, status: `No results for "${input.query}"` };
         }
-
-        // Auto-fetch og:images for top results
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai";
-        const imagePromises = data.results.slice(0, 6).map(async (r: any) => {
-          if (r.image) return r; // already has image from search
+        const enriched = await Promise.all(data.results.slice(0, 6).map(async (r: any) => {
+          if (r.image) return r;
           try {
             const imgRes = await fetch(`${baseUrl}/api/image-proxy?url=${encodeURIComponent(r.url)}`, { signal: AbortSignal.timeout(3000) });
             const imgData = await imgRes.json();
             return { ...r, image: imgData.image || null };
-          } catch {
-            return r;
-          }
-        });
-        const enrichedResults = await Promise.all(imagePromises);
-        return { result: { results: enrichedResults, query: input.query }, status: `Searched for "${input.query}"` };
+          } catch { return r; }
+        }));
+        return { result: { results: enriched, query: input.query }, status: `Searched for "${input.query}"` };
       } catch {
         return { result: { results: [], query: input.query, error: "Search unavailable." }, status: "Search failed" };
       }
@@ -302,8 +242,7 @@ async function executeTool(
       const pageUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai"}/api/read-page?url=${encodeURIComponent(input.url)}`;
       try {
         const res = await fetch(pageUrl, { signal: AbortSignal.timeout(10000) });
-        const data = await res.json();
-        return { result: data, status: `Reading ${new URL(input.url).hostname}...` };
+        return { result: await res.json(), status: `Reading ${new URL(input.url).hostname}...` };
       } catch {
         return { result: { error: "Could not read page" }, status: "Read failed" };
       }
@@ -313,119 +252,68 @@ async function executeTool(
   }
 }
 
-// ── Main Route (SSE Streaming) ──────────────────────────
+// ── Main Route ──────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const {
-    message,
-    images,
-    history,
-    googleAccessToken,
-    googleRefreshToken,
-    context,
-    userProfile,
-    conversationId: clientConversationId,
-  } = body;
+  const { message, images, context, userProfile, conversationId } = body;
 
-  // Build user message content (with optional images for vision)
-  let userContent: any;
-  if (images && images.length > 0) {
+  // Build user content (text or multimodal)
+  let userContent: any = message;
+  if (images?.length) {
     userContent = [
       ...images.map((img: string) => ({
         type: "image",
         source: img.startsWith("data:")
-          ? {
-              type: "base64" as const,
-              media_type: img.split(";")[0].split(":")[1],
-              data: img.split(",")[1],
-            }
+          ? { type: "base64" as const, media_type: img.split(";")[0].split(":")[1], data: img.split(",")[1] }
           : { type: "url" as const, url: img },
       })),
       { type: "text", text: message },
     ];
-  } else {
-    userContent = message;
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return Response.json({ error: "No API key configured" }, { status: 500 });
-  }
+  if (!apiKey) return Response.json({ error: "No API key configured" }, { status: 500 });
 
-  // Get authenticated user
-  const user = await getUserFromRequest();
+  // 1. Authenticate
+  const user = await getUser();
 
-  // Get Google tokens: prefer DB, fall back to request body
-  let tokens: { access: string; refresh: string } = { access: googleAccessToken || '', refresh: googleRefreshToken || '' };
+  // 2. Get tokens
+  let tokens = { access: "", refresh: "" };
   if (user) {
-    const dbTokens = await getGoogleTokensFromDB(user.id);
-    if (dbTokens?.access) tokens = { access: dbTokens.access, refresh: dbTokens.refresh || '' };
+    const dbTokens = await getGoogleTokens(user.id);
+    if (dbTokens) tokens = { access: dbTokens.access, refresh: dbTokens.refresh };
   }
 
-  // ── Parallel data loading for system prompt ──
-  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary, relevantMemories] = await Promise.all([
+  // 3. Load context in parallel
+  const [memoryBlock, topMemories, integrations, usageStats, relevantMemories, dbHistory, msgCount] = await Promise.all([
     user ? loadUserMemories(user.id, 20, message) : Promise.resolve(""),
     user ? loadTopMemorySummary(user.id) : Promise.resolve([]),
-    user ? loadUserIntegrations(user.id) : Promise.resolve([]),
+    user ? loadIntegrations(user.id) : Promise.resolve([]),
     user ? getTodayUsageStats(user.id) : Promise.resolve(null),
-    (user && clientConversationId) ? getConversationSummary(clientConversationId) : Promise.resolve(""),
     user ? searchMemoriesSemantic(createAdminClient(), user.id, message, 10) : Promise.resolve([]),
+    conversationId ? loadHistory(conversationId) : Promise.resolve([]),
+    conversationId ? getMessageCount(conversationId) : Promise.resolve(0),
   ]);
 
-  // Build relevant memories block from full-text search
-  let relevantMemoryBlock = "";
-  if (relevantMemories.length > 0) {
-    relevantMemoryBlock = "\n## Relevant memories:\n" +
-      relevantMemories.map((m: any) => `- ${m.fact || m.content}`).join("\n");
-  }
+  const isFirstMessage = msgCount === 0;
 
-  // Load conversation history from DB if available
-  let conversationId = clientConversationId;
-  let dbHistory: { role: string; content: string }[] = [];
-  let isFirstMessage = true;
+  // 4. Save user message to DB
   if (user && conversationId) {
-    const [hist, msgCount] = await Promise.all([
-      loadConversationHistory(conversationId),
-      getConversationMessageCount(conversationId),
-    ]);
-    dbHistory = hist;
-    isFirstMessage = msgCount === 0;
+    saveMessage(conversationId, "user", message).catch(() => {});
   }
 
+  // 5. Build system prompt
   const enrichedContext = { ...context, userProfile: userProfile || {}, integrations };
-  let systemPrompt = buildSystemPrompt(
-    enrichedContext, memoryBlock, integrations, topMemories, usageStats, conversationSummary
-  );
-  if (relevantMemoryBlock) {
-    systemPrompt += relevantMemoryBlock;
-  }
+  const systemPrompt = buildSystemPrompt({
+    context: enrichedContext, memoryBlock, integrations, topMemories, usageStats, relevantMemories,
+  });
 
-  // Detect rephrase (user correcting themselves)
-  const prevUserMessages = (dbHistory.length > 0 ? dbHistory : (history || []))
-    .filter((m: any) => m.role === "user");
-  const lastUserMsg = prevUserMessages.length > 0 ? prevUserMessages[prevUserMessages.length - 1].content : "";
-  const rephrasePatterns = /^(no[, ]|actually[, ]|i meant|i said|not that|what i meant)/i;
-  const isRephrase = rephrasePatterns.test(message) || (
-    lastUserMsg && message.length > 5 && lastUserMsg.length > 5 &&
-    message.slice(0, 20).toLowerCase() === lastUserMsg.slice(0, 20).toLowerCase() &&
-    message !== lastUserMsg
-  );
-  if (isRephrase) {
-    fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai"}/api/track`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "rephrase", elementId: null, elementType: "message", previousMessage: lastUserMsg, newMessage: message }),
-    }).catch(() => {});
-  }
+  // 6. Build messages (DB history + current)
+  const messages = [...dbHistory, { role: "user", content: userContent }];
+  const { model } = selectModel(message);
 
-  // Combine DB history with client history, preferring DB
-  const baseHistory = dbHistory.length > 0 ? dbHistory : (history || []);
-  const messages = [...baseHistory, { role: "user", content: userContent }];
-
-  // Smart model routing
-  const { model, intent } = selectModel(message);
-
+  // 7. Stream response
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -438,13 +326,12 @@ export async function POST(req: NextRequest) {
         let maxIterations = 3;
         let totalTokensIn = 0;
         let totalTokensOut = 0;
-        let finalSpoken = "";
-        let finalCards: any[] = [];
+        let fullResponseText = "";
+        let sceneData: any = null;
         const toolsUsed: string[] = [];
         let hadErrors = false;
 
         while (maxIterations-- > 0) {
-          // ── Stream Claude's response ──
           const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -453,86 +340,67 @@ export async function POST(req: NextRequest) {
               "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model,
-              max_tokens: 4096,
-              stream: true,
-              system: systemPrompt,
-              tools: AI_TOOLS_V4,
+              model, max_tokens: 4096, stream: true,
+              system: systemPrompt, tools: AI_TOOLS_V4,
               messages: currentMessages,
             }),
           });
 
           if (!claudeResponse.ok) {
-            const err = await claudeResponse.text();
-            send({ type: "error", error: err });
+            send({ type: "error", error: await claudeResponse.text() });
             break;
           }
 
-          // Parse SSE stream from Anthropic
+          // Parse SSE
           const reader = claudeResponse.body!.getReader();
-          const sseDecoder = new TextDecoder();
-          let sseBuf = "";
+          const dec = new TextDecoder();
+          let buf = "";
           let fullContent: any[] = [];
-          let currentTextBlock = "";
-          let streamUsage = { input_tokens: 0, output_tokens: 0 };
+          let currentText = "";
+          let usage = { input_tokens: 0, output_tokens: 0 };
           let stopReason = "";
 
           while (true) {
-            const { done: rDone, value: rValue } = await reader.read();
-            if (rDone) break;
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() || "";
 
-            sseBuf += sseDecoder.decode(rValue, { stream: true });
-            const sseLines = sseBuf.split("\n");
-            sseBuf = sseLines.pop() || "";
-
-            for (const sseLine of sseLines) {
-              if (!sseLine.startsWith("data: ")) continue;
-              const sseData = sseLine.slice(6);
-              if (sseData === "[DONE]") continue;
-
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const d = line.slice(6);
+              if (d === "[DONE]") continue;
               try {
-                const ev = JSON.parse(sseData);
+                const ev = JSON.parse(d);
                 switch (ev.type) {
                   case "message_start":
-                    streamUsage.input_tokens = ev.message?.usage?.input_tokens || 0;
+                    usage.input_tokens = ev.message?.usage?.input_tokens || 0;
                     break;
                   case "content_block_start":
-                    if (ev.content_block?.type === "text") {
-                      currentTextBlock = "";
-                    } else if (ev.content_block?.type === "tool_use") {
-                      fullContent.push({
-                        type: "tool_use",
-                        id: ev.content_block.id,
-                        name: ev.content_block.name,
-                        input: "",
-                      });
+                    if (ev.content_block?.type === "text") currentText = "";
+                    else if (ev.content_block?.type === "tool_use") {
+                      fullContent.push({ type: "tool_use", id: ev.content_block.id, name: ev.content_block.name, input: "" });
                     }
                     break;
                   case "content_block_delta":
                     if (ev.delta?.type === "text_delta") {
-                      currentTextBlock += ev.delta.text;
-                      // Stream text to client immediately
+                      currentText += ev.delta.text;
                       send({ type: "text_delta", text: ev.delta.text });
                     } else if (ev.delta?.type === "input_json_delta") {
-                      const lastBlock = fullContent[fullContent.length - 1];
-                      if (lastBlock?.type === "tool_use") {
-                        lastBlock.input += ev.delta.partial_json;
-                      }
+                      const last = fullContent[fullContent.length - 1];
+                      if (last?.type === "tool_use") last.input += ev.delta.partial_json;
                     }
                     break;
                   case "content_block_stop":
-                    if (currentTextBlock) {
-                      fullContent.push({ type: "text", text: currentTextBlock });
-                      currentTextBlock = "";
-                    }
-                    // Parse accumulated tool input JSON
-                    const lastBlock = fullContent[fullContent.length - 1];
-                    if (lastBlock?.type === "tool_use" && typeof lastBlock.input === "string") {
-                      try { lastBlock.input = JSON.parse(lastBlock.input); } catch { lastBlock.input = {}; }
+                    if (currentText) { fullContent.push({ type: "text", text: currentText }); currentText = ""; }
+                    const last = fullContent[fullContent.length - 1];
+                    if (last?.type === "tool_use" && typeof last.input === "string") {
+                      try { last.input = JSON.parse(last.input); } catch { last.input = {}; }
                     }
                     break;
                   case "message_delta":
-                    streamUsage.output_tokens = ev.usage?.output_tokens || 0;
+                    usage.output_tokens = ev.usage?.output_tokens || 0;
                     stopReason = ev.delta?.stop_reason || stopReason;
                     break;
                 }
@@ -540,57 +408,48 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          totalTokensIn += streamUsage.input_tokens;
-          totalTokensOut += streamUsage.output_tokens;
+          totalTokensIn += usage.input_tokens;
+          totalTokensOut += usage.output_tokens;
 
           const toolUses = fullContent.filter((b: any) => b.type === "tool_use");
           const textBlocks = fullContent.filter((b: any) => b.type === "text");
 
+          // Handle display tool
           const displayCall = toolUses.find((t: any) => t.name === "display");
           if (displayCall) {
-            const { spoken, intent: sceneIntent, layout, elements } = displayCall.input;
-            finalSpoken = spoken || "";
+            const { spoken, intent, layout, elements } = displayCall.input;
             const scene = {
-              id: `scene-${Date.now()}`,
-              intent: sceneIntent || "",
-              layout: layout || "focused",
-              elements: (elements || []).map((el: any) => ({
-                ...el,
-                priority: el.priority || 2,
-                size: el.size || "md",
-              })),
-              spoken: finalSpoken,
+              id: `scene-${Date.now()}`, intent: intent || "", layout: layout || "focused",
+              elements: (elements || []).map((el: any) => ({ ...el, priority: el.priority || 2, size: el.size || "md" })),
+              spoken: spoken || "",
             };
-            finalCards = scene.elements;
+            sceneData = scene;
+            fullResponseText = spoken || "";
             send({ type: "scene", scene });
-            send({ type: "done", text: finalSpoken });
+            send({ type: "done", text: fullResponseText });
             break;
           }
 
-          // Backward compat: render_cards
+          // Handle render_cards (legacy)
           const renderCall = toolUses.find((t: any) => t.name === "render_cards");
           if (renderCall) {
             const { spoken, cards } = renderCall.input;
-            finalSpoken = spoken || "";
-            finalCards = cards || [];
-            for (const card of finalCards) {
-              send({ type: "card", card });
-            }
-            send({ type: "done", text: finalSpoken });
+            fullResponseText = spoken || "";
+            for (const card of (cards || [])) send({ type: "card", card });
+            send({ type: "done", text: fullResponseText });
             break;
           }
 
+          // No tools — pure text response
           if (toolUses.length === 0) {
-            const text = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
-            finalSpoken = text.slice(0, 300);
-            // Text was already streamed via text_delta events
-            // Send done event to finalize
-            send({ type: "done", text: finalSpoken });
+            fullResponseText = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
+            send({ type: "done", text: fullResponseText });
             break;
           }
 
-          const toolResults: any[] = [];
+          // Execute tools and loop
           currentMessages = [...currentMessages, { role: "assistant", content: fullContent }];
+          const toolResults: any[] = [];
 
           for (const tool of toolUses) {
             toolsUsed.push(tool.name);
@@ -598,50 +457,47 @@ export async function POST(req: NextRequest) {
               fetch_emails: "Checking your emails...",
               fetch_calendar: "Looking at your calendar...",
               fetch_drive_files: "Browsing your files...",
-              search_web: `Searching for "${tool.input.query || ""}..."`,
+              search_web: `Searching for "${tool.input.query || ""}"...`,
               send_email: "Sending email...",
               get_email: "Reading email...",
               archive_email: "Archiving...",
-              read_page: `Reading page...`,
+              read_page: "Reading page...",
             };
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
 
             try {
               const { result } = await executeTool(tool.name, tool.input, tokens, user?.id);
-              toolResults.push({
-                type: "tool_result",
-                tool_use_id: tool.id,
-                content: JSON.stringify(result),
-              });
+              toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: JSON.stringify(result) });
             } catch (err: any) {
               hadErrors = true;
-              const errorMsg = err.message || "Tool execution failed";
               toolResults.push({
-                type: "tool_result",
-                tool_use_id: tool.id,
-                content: JSON.stringify({
-                  error: errorMsg,
-                  hint: "Analyze this error and try an alternative approach if possible.",
-                }),
-                is_error: true,
+                type: "tool_result", tool_use_id: tool.id, is_error: true,
+                content: JSON.stringify({ error: err.message || "Tool failed", hint: "Try an alternative approach." }),
               });
-              // Record error for future learning
-              if (user) {
-                recordToolError(user.id, tool.name, errorMsg, JSON.stringify(tool.input).slice(0, 200)).catch(() => {});
-              }
+              if (user) recordToolError(user.id, tool.name, err.message || "", JSON.stringify(tool.input).slice(0, 200)).catch(() => {});
             }
           }
 
           currentMessages = [...currentMessages, { role: "user", content: toolResults }];
         }
 
-        // ── Background tasks (fire-and-forget, non-blocking) ──
+        // 8. Save assistant message to DB
+        if (user && conversationId && fullResponseText) {
+          saveMessage(conversationId, "assistant", fullResponseText, {
+            scene_data: sceneData,
+            model,
+            tokens_in: totalTokensIn,
+            tokens_out: totalTokensOut,
+          }).catch(() => {});
+        }
+
+        // 9. Background tasks
         if (user) {
           runBackgroundTasks({
             userId: user.id,
             conversationId,
             userMessage: message,
-            assistantResponse: finalSpoken,
+            assistantResponse: fullResponseText,
             model,
             tokensIn: totalTokensIn,
             tokensOut: totalTokensOut,
@@ -651,9 +507,7 @@ export async function POST(req: NextRequest) {
           });
         }
       } catch (err: any) {
-        controller.enqueue(
-          encoder.encode(JSON.stringify({ type: "error", error: err.message }) + "\n")
-        );
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "error", error: err.message }) + "\n"));
       } finally {
         controller.close();
       }
@@ -661,10 +515,6 @@ export async function POST(req: NextRequest) {
   });
 
   return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
   });
 }

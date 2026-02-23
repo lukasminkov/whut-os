@@ -10,11 +10,15 @@ import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useTTS } from "@/hooks/useTTS";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, X, MessageSquare } from "lucide-react";
+import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
 
-const MAX_HISTORY = 40;
+const SUGGESTIONS = [
+  "What's my day look like?",
+  "Show my emails",
+  "Search the web",
+];
 
-// ── Skeleton scene shown while AI is thinking ──
 function SkeletonScene() {
   return (
     <div className="relative z-30 w-full h-full flex items-center justify-center">
@@ -29,20 +33,14 @@ function SkeletonScene() {
   );
 }
 
-// ── Suggestion pills for quiet state ──
-const SUGGESTIONS = [
-  "What's my day look like?",
-  "Show my emails",
-  "Search the web",
-];
-
 export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
-  const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
+  const [chatMessages, setChatMessages] = useState<RecapMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [showRecap, setShowRecap] = useState(true);
   const [appMode, setAppMode] = useState<AppMode>(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("whut_app_mode") as AppMode) || "chat";
@@ -53,7 +51,7 @@ export default function DashboardPage() {
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── User Profile & Onboarding ──
+  // User profile
   const [userProfile, setUserProfile] = useState<{
     name?: string; company?: string; role?: string; timezone?: string;
     onboardingStep?: string; onboardingComplete?: boolean;
@@ -71,16 +69,7 @@ export default function DashboardPage() {
     localStorage.setItem("whut_user_profile", JSON.stringify(userProfile));
   }, [userProfile]);
 
-  const onboardingTriggered = useRef(false);
-  useEffect(() => {
-    if (!userProfile.onboardingComplete && !onboardingTriggered.current) {
-      onboardingTriggered.current = true;
-      const timer = setTimeout(() => sendToAI("Hello"), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Conversation Persistence ──
+  // Initialize conversation
   useEffect(() => {
     async function initConversation() {
       try {
@@ -88,20 +77,44 @@ export default function DashboardPage() {
         const data = await res.json();
         if (data.conversation) {
           setConversationId(data.conversation.id);
-          const msgRes = await fetch(`/api/conversations/${data.conversation.id}/messages?limit=20`);
+          const msgRes = await fetch(`/api/conversations/${data.conversation.id}/messages?limit=50`);
           const msgData = await msgRes.json();
           if (msgData.messages?.length) {
-            setChatHistory(msgData.messages.map((m: any) => ({ role: m.role, content: m.content })));
+            setChatMessages(msgData.messages.map((m: any) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content || "",
+              timestamp: new Date(m.created_at),
+            })));
+            // Restore last scene if any
+            const lastWithScene = [...(msgData.messages || [])].reverse().find((m: any) => m.scene_data);
+            if (lastWithScene?.scene_data) setCurrentScene(lastWithScene.scene_data);
           }
         } else {
-          const createRes = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          const createRes = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
           const createData = await createRes.json();
           if (createData.conversation) setConversationId(createData.conversation.id);
         }
-      } catch {}
+      } catch (e) {
+        console.error("Failed to init conversation:", e);
+      }
     }
     initConversation();
   }, []);
+
+  // Auto-trigger onboarding
+  const onboardingTriggered = useRef(false);
+  useEffect(() => {
+    if (!userProfile.onboardingComplete && !onboardingTriggered.current && conversationId && chatMessages.length === 0) {
+      onboardingTriggered.current = true;
+      const timer = setTimeout(() => sendToAI("Hello"), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tts = useTTS();
   const speechLoopRef = useRef(false);
@@ -127,7 +140,53 @@ export default function DashboardPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleMode]);
 
-  // ── Core AI call ──
+  // New conversation
+  const startNewConversation = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await res.json();
+      if (data.conversation) {
+        setConversationId(data.conversation.id);
+        setChatMessages([]);
+        setCurrentScene(null);
+        window.dispatchEvent(new CustomEvent('whut-conversation-changed'));
+      }
+    } catch {}
+  }, []);
+
+  // Load conversation
+  const loadConversation = useCallback(async (id: string) => {
+    try {
+      setConversationId(id);
+      setCurrentScene(null);
+      const msgRes = await fetch(`/api/conversations/${id}/messages?limit=50`);
+      const msgData = await msgRes.json();
+      const msgs = (msgData.messages || []).map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content || "",
+        timestamp: new Date(m.created_at),
+      }));
+      setChatMessages(msgs);
+      // Restore last scene
+      const lastWithScene = [...(msgData.messages || [])].reverse().find((m: any) => m.scene_data);
+      if (lastWithScene?.scene_data) setCurrentScene(lastWithScene.scene_data);
+      setShowRecap(true);
+    } catch {}
+  }, []);
+
+  // Expose for sidebar
+  useEffect(() => {
+    (window as any).__whut_loadConversation = loadConversation;
+    (window as any).__whut_newConversation = startNewConversation;
+    return () => { delete (window as any).__whut_loadConversation; delete (window as any).__whut_newConversation; };
+  }, [loadConversation, startNewConversation]);
+
+  // Core AI call
   const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
     setInput("");
@@ -136,32 +195,25 @@ export default function DashboardPage() {
     setThinking(true);
     setStatusText(null);
 
+    // Add user message to recap
+    const userMsgId = `user-${Date.now()}`;
+    setChatMessages(prev => [...prev, { id: userMsgId, role: "user", content: trimmed, timestamp: new Date() }]);
+    setShowRecap(true);
+
+    // Streaming assistant message
+    const assistantMsgId = `assistant-${Date.now()}`;
+    let assistantAdded = false;
+
     try {
-      const connectedIntegrations: string[] = [];
-      try {
-        const gt = JSON.parse(localStorage.getItem("whut_google_tokens") || "{}");
-        if (gt.access_token) connectedIntegrations.push("gmail", "calendar", "drive");
-      } catch {}
-      try { if (localStorage.getItem("tiktok_access_token")) connectedIntegrations.push("tiktok"); } catch {}
-
-      const googleTokens = (() => {
-        try { return JSON.parse(localStorage.getItem("whut_google_tokens") || "{}"); }
-        catch { return {}; }
-      })();
-
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: trimmed,
           images: imagesToSend.length > 0 ? imagesToSend : undefined,
-          history: chatHistory,
-          googleAccessToken: googleTokens.access_token || null,
-          googleRefreshToken: googleTokens.refresh_token || null,
-          userProfile,
           conversationId,
+          userProfile,
           context: {
-            integrations: connectedIntegrations,
             screen: { width: window.innerWidth, height: window.innerHeight },
             time: new Date().toISOString(),
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -170,15 +222,14 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let streamingText = "";
       let spokenText = "";
       let receivedScene = false;
-      let streamingText = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -195,6 +246,7 @@ export default function DashboardPage() {
 
             if (event.type === "text_delta") {
               streamingText += event.text;
+              // Show streaming text as a minimal scene
               const textScene: Scene = {
                 id: "streaming-text",
                 intent: "",
@@ -210,6 +262,19 @@ export default function DashboardPage() {
               setThinking(false);
               setStatusText(null);
               receivedScene = true;
+
+              // Update chat recap with streaming text
+              if (!assistantAdded) {
+                assistantAdded = true;
+                setChatMessages(prev => [...prev, {
+                  id: assistantMsgId, role: "assistant", content: streamingText,
+                  timestamp: new Date(), streaming: true,
+                }]);
+              } else {
+                setChatMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: streamingText } : m
+                ));
+              }
             } else if (event.type === "status") {
               setStatusText(event.text);
             } else if (event.type === "scene") {
@@ -218,21 +283,12 @@ export default function DashboardPage() {
               setThinking(false);
               setStatusText(null);
             } else if (event.type === "card") {
-              // Legacy card events — wrap as minimal V4 scene
               const card = event.card;
               if (card?.type === "content" && card?.data?.content) {
-                const textScene: Scene = {
-                  id: `text-${Date.now()}`,
-                  intent: "",
-                  layout: "minimal",
-                  elements: [{
-                    id: "response",
-                    type: "text",
-                    priority: 1,
-                    data: { content: card.data.content, typewriter: true },
-                  }],
-                };
-                setCurrentScene(textScene);
+                setCurrentScene({
+                  id: `text-${Date.now()}`, intent: "", layout: "minimal",
+                  elements: [{ id: "response", type: "text", priority: 1, data: { content: card.data.content, typewriter: true } }],
+                });
                 receivedScene = true;
               }
               setThinking(false);
@@ -246,27 +302,32 @@ export default function DashboardPage() {
         }
       }
 
-      // If no scene received but we have spoken text, wrap it
-      if (!receivedScene && spokenText) {
-        const textScene: Scene = {
-          id: `text-${Date.now()}`,
-          intent: "",
-          layout: "minimal",
-          elements: [{
-            id: "response",
-            type: "text",
-            priority: 1,
-            data: { content: spokenText, typewriter: true },
-          }],
-        };
-        setCurrentScene(textScene);
+      // Finalize
+      const finalText = spokenText || streamingText;
+
+      if (!receivedScene && finalText) {
+        setCurrentScene({
+          id: `text-${Date.now()}`, intent: "", layout: "minimal",
+          elements: [{ id: "response", type: "text", priority: 1, data: { content: finalText, typewriter: true } }],
+        });
+      }
+
+      // Finalize chat recap message
+      if (assistantAdded) {
+        setChatMessages(prev => prev.map(m =>
+          m.id === assistantMsgId ? { ...m, content: finalText, streaming: false } : m
+        ));
+      } else if (finalText) {
+        setChatMessages(prev => [...prev, {
+          id: assistantMsgId, role: "assistant", content: finalText, timestamp: new Date(),
+        }]);
       }
 
       setThinking(false);
       setStatusText(null);
 
-      if (spokenText) {
-        tts.speak(spokenText, () => {
+      if (finalText) {
+        tts.speak(finalText, () => {
           if (speechLoopRef.current) voice.startListening();
         });
       } else if (speechLoopRef.current) {
@@ -284,9 +345,7 @@ export default function DashboardPage() {
         } else if (step === "role") {
           const atMatch = trimmed.match(/(?:at|for|from)\s+(.+?)(?:\s+as\s+|\s*,\s*|\s*$)/i);
           const roleMatch = trimmed.match(/(?:i'm a|i am a|i'm the|i am the|i work as)\s+(.+?)(?:\s+at\s+|\s*$)/i);
-          const company = atMatch?.[1]?.trim() || "";
-          const role = roleMatch?.[1]?.trim() || trimmed;
-          setUserProfile(prev => ({ ...prev, company: company || prev.company, role: role || prev.role, onboardingStep: "integrations" }));
+          setUserProfile(prev => ({ ...prev, company: atMatch?.[1]?.trim() || prev.company, role: roleMatch?.[1]?.trim() || trimmed, onboardingStep: "integrations" }));
         } else if (step === "integrations") {
           setUserProfile(prev => ({
             ...prev, onboardingComplete: true, onboardingStep: "complete",
@@ -295,10 +354,7 @@ export default function DashboardPage() {
         }
       }
 
-      setChatHistory(prev => {
-        const updated = [...prev, { role: "user", content: trimmed }, { role: "assistant", content: spokenText || "Showed visual response." }];
-        return updated.slice(-MAX_HISTORY);
-      });
+      window.dispatchEvent(new CustomEvent('whut-conversation-changed'));
 
     } catch (error: any) {
       console.error("AI error:", error);
@@ -306,11 +362,11 @@ export default function DashboardPage() {
       setStatusText(null);
       if (speechLoopRef.current) voice.startListening();
     }
-  }, [chatHistory, userProfile, tts, conversationId, pendingImages]);
+  }, [conversationId, userProfile, tts, pendingImages]);
 
   const handleSubmit = () => { const t = input.trim(); if (t) sendToAI(t); };
 
-  // ── Voice ──
+  // Voice
   const inputRef = useRef<HTMLInputElement>(null);
   const handleVoiceFinal = useCallback((text: string) => {
     setInput("");
@@ -414,7 +470,7 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* V4 Scene display */}
+      {/* V4 Scene display — full screen, primary */}
       <AnimatePresence>
         {currentScene && (
           <motion.div
@@ -451,6 +507,37 @@ export default function DashboardPage() {
               ))}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Chat Recap Panel */}
+      <ChatRecap
+        messages={chatMessages}
+        visible={showRecap && chatMessages.length > 0}
+        onToggle={() => setShowRecap(prev => !prev)}
+      />
+
+      {/* Chat recap toggle button (when hidden) */}
+      <AnimatePresence>
+        {!showRecap && chatMessages.length > 0 && (
+          <motion.button
+            className="fixed right-4 bottom-20 md:right-6 md:bottom-24 z-50 w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            onClick={() => setShowRecap(true)}
+            title="Show conversation"
+          >
+            <MessageSquare size={16} className="text-white/40" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#00d4aa]/80 text-[8px] text-white flex items-center justify-center font-bold">
+              {chatMessages.length}
+            </span>
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -509,7 +596,6 @@ export default function DashboardPage() {
           >
             <ModeToggle mode={appMode} onToggle={toggleMode} />
             <div className="flex-1 flex flex-col">
-              {/* Image thumbnails */}
               {pendingImages.length > 0 && (
                 <div className="flex gap-1 px-3 pt-2 pb-1">
                   {pendingImages.map((img, i) => (
@@ -550,15 +636,12 @@ export default function DashboardPage() {
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 Promise.all(
-                  files.map(
-                    (f) =>
-                      new Promise<string>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result as string);
-                        reader.readAsDataURL(f);
-                      })
-                  )
-                ).then((imgs) => setPendingImages((prev) => [...prev, ...imgs]));
+                  files.map(f => new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.readAsDataURL(f);
+                  }))
+                ).then((imgs) => setPendingImages(prev => [...prev, ...imgs]));
                 if (e.target) e.target.value = "";
               }}
             />
