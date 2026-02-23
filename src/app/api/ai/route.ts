@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
-import { AI_TOOLS, V3_SYSTEM_PROMPT } from "@/lib/tools";
+import { AI_TOOLS_V4, V4_SYSTEM_PROMPT } from "@/lib/tools-v4";
+// Legacy import kept for backward compat if needed
+// import { AI_TOOLS, V3_SYSTEM_PROMPT } from "@/lib/tools";
 import {
   getRecentEmails,
   getMessage,
@@ -222,7 +224,7 @@ function buildSystemPrompt(context: any, memoryBlock: string) {
   const time = context?.time || new Date().toISOString();
   const isOnboarding = !profile?.name || ["welcome", "name", "role", "integrations"].includes(profile?.onboardingStep);
 
-  let prompt = V3_SYSTEM_PROMPT;
+  let prompt = V4_SYSTEM_PROMPT;
 
   if (isOnboarding) {
     prompt += `\n\n${SKILL_ONBOARDING}`;
@@ -412,7 +414,7 @@ export async function POST(req: NextRequest) {
               model,
               max_tokens: 4096,
               system: systemPrompt,
-              tools: AI_TOOLS,
+              tools: AI_TOOLS_V4,
               messages: currentMessages,
             }),
           });
@@ -430,6 +432,29 @@ export async function POST(req: NextRequest) {
           const toolUses = (data.content || []).filter((b: any) => b.type === "tool_use");
           const textBlocks = (data.content || []).filter((b: any) => b.type === "text");
 
+          const displayCall = toolUses.find((t: any) => t.name === "display");
+          if (displayCall) {
+            const { spoken, intent, layout, elements } = displayCall.input;
+            finalSpoken = spoken || "";
+            // Build V4 scene
+            const scene = {
+              id: `scene-${Date.now()}`,
+              intent: intent || "",
+              layout: layout || "focused",
+              elements: (elements || []).map((el: any) => ({
+                ...el,
+                priority: el.priority || 2,
+                size: el.size || "md",
+              })),
+              spoken: finalSpoken,
+            };
+            finalCards = scene.elements; // for DB storage
+            send({ type: "scene", scene });
+            send({ type: "done", text: finalSpoken });
+            break;
+          }
+
+          // Backward compat: render_cards from old prompts
           const renderCall = toolUses.find((t: any) => t.name === "render_cards");
           if (renderCall) {
             const { spoken, cards } = renderCall.input;

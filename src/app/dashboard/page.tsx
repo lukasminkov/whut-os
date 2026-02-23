@@ -7,6 +7,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Card } from "@/lib/card-types";
 import { layoutCards } from "@/lib/layout-engine";
 import CardRenderer from "@/components/CardRenderer";
+import SceneRendererV4 from "@/components/SceneRendererV4";
+import type { Scene } from "@/lib/scene-v4-types";
+import * as SceneManager from "@/lib/scene-manager";
 import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
@@ -23,6 +26,7 @@ export default function DashboardPage() {
   const [thinking, setThinking] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
+  const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<AppMode>(() => {
@@ -166,6 +170,7 @@ export default function DashboardPage() {
       let buffer = "";
       const newCards: Card[] = [];
       let spokenText = "";
+      let receivedScene: Scene | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -182,6 +187,12 @@ export default function DashboardPage() {
 
             if (event.type === "status") {
               setStatusText(event.text);
+            } else if (event.type === "scene") {
+              receivedScene = event.scene;
+              setCurrentScene(event.scene);
+              setCards([]); // Clear legacy cards
+              setThinking(false);
+              setStatusText(null);
             } else if (event.type === "card") {
               const card = event.card as Card;
               // Ensure required fields
@@ -309,14 +320,18 @@ export default function DashboardPage() {
   }, [appMode, voice.state, voice.startListening, voice.stopListening]);
 
   // Orb state
-  const orbState: OrbState = cards.length > 0
+  const orbState: OrbState = (cards.length > 0 || currentScene)
     ? "scene-active"
     : tts.isSpeaking ? "speaking"
     : thinking ? "thinking"
     : voice.state === "listening" ? "listening"
     : "idle";
 
-  const closeCards = () => setCards([]);
+  const closeCards = () => {
+    setCards([]);
+    setCurrentScene(null);
+    SceneManager.clearScene();
+  };
 
   return (
     <div className="h-full w-full overflow-hidden relative">
@@ -360,9 +375,23 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Card display */}
+      {/* V4 Scene display */}
       <AnimatePresence>
-        {cards.length > 0 && (
+        {currentScene && (
+          <motion.div
+            className="absolute inset-0 z-30"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <SceneRendererV4 scene={currentScene} onClose={closeCards} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Legacy card display (fallback) */}
+      <AnimatePresence>
+        {!currentScene && cards.length > 0 && (
           <CardRenderer cards={cards} onClose={closeCards} onAddCard={(card) => setCards(prev => [...prev, card])} />
         )}
       </AnimatePresence>
