@@ -268,9 +268,23 @@ async function executeTool(
         const res = await fetch(searchUrl);
         const data = await res.json();
         if (!data.results || data.results.length === 0) {
-          return { result: { results: [], query: input.query, error: "No results found. Provide best answer from knowledge." }, status: `No results for "${input.query}"` };
+          return { result: { results: [], query: input.query, error: "No results found." }, status: `No results for "${input.query}"` };
         }
-        return { result: data, status: `Searched for "${input.query}"` };
+
+        // Auto-fetch og:images for top results
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai";
+        const imagePromises = data.results.slice(0, 6).map(async (r: any) => {
+          if (r.image) return r; // already has image from search
+          try {
+            const imgRes = await fetch(`${baseUrl}/api/image-proxy?url=${encodeURIComponent(r.url)}`, { signal: AbortSignal.timeout(3000) });
+            const imgData = await imgRes.json();
+            return { ...r, image: imgData.image || null };
+          } catch {
+            return r;
+          }
+        });
+        const enrichedResults = await Promise.all(imagePromises);
+        return { result: { results: enrichedResults, query: input.query }, status: `Searched for "${input.query}"` };
       } catch {
         return { result: { results: [], query: input.query, error: "Search unavailable." }, status: "Search failed" };
       }
@@ -282,21 +296,6 @@ async function executeTool(
     case "archive_email": {
       await withRefresh(t => archiveEmail(t, input.id));
       return { result: { success: true }, status: "Archived email" };
-    }
-    case "fetch_images": {
-      const urls = (input.urls || []).slice(0, 6);
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://whut.ai";
-      const results = await Promise.allSettled(
-        urls.map(async (url: string) => {
-          const res = await fetch(`${baseUrl}/api/image-proxy?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(5000) });
-          const data = await res.json();
-          return { url, image: data.image || null };
-        })
-      );
-      const images = results.map((r: PromiseSettledResult<{ url: string; image: string | null }>, i: number) =>
-        r.status === "fulfilled" ? r.value : { url: urls[i], image: null }
-      );
-      return { result: { images }, status: "Fetched images" };
     }
     default:
       return { result: { error: `Unknown tool: ${name}` } };
@@ -479,7 +478,6 @@ export async function POST(req: NextRequest) {
               send_email: "Sending email...",
               get_email: "Reading email...",
               archive_email: "Archiving...",
-              fetch_images: "Fetching images...",
             };
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
 
