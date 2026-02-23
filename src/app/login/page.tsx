@@ -15,13 +15,7 @@ export default function LoginPage() {
 
   // Check if already authenticated
   useEffect(() => {
-    if (!supabase) {
-      // Supabase not configured — fall back to localStorage auth
-      if (localStorage.getItem("whut-os-auth") === "true") {
-        router.replace("/dashboard");
-      }
-      return;
-    }
+    if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) router.replace("/dashboard");
     });
@@ -55,13 +49,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (!email.trim()) return;
     if (!supabase) {
-      // Fallback: hardcoded login
-      if (email === "minkovgroup@gmail.com") {
-        localStorage.setItem("whut-os-auth", "true");
-        router.push("/dashboard");
-      } else {
-        setError("Access denied.");
-      }
+      setError("Authentication not configured");
       return;
     }
     setLoading(true);

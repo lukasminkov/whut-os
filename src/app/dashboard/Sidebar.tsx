@@ -149,7 +149,6 @@ export default function Sidebar() {
               <span className="text-white/10">|</span>
               <button
                 onClick={async () => {
-                  localStorage.removeItem("whut-os-auth");
                   try {
                     const { createClient } = await import("@/lib/supabase");
                     const supabase = createClient();

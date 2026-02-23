@@ -33,13 +33,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         document.body.classList.remove("dashboard-active");
       };
     } else {
-      // Fallback: localStorage auth
-      if (localStorage.getItem("whut-os-auth") !== "true") {
-        router.replace("/login");
-      } else {
-        setAuthed(true);
-        document.body.classList.add("dashboard-active");
-      }
+      // Supabase not configured — redirect to login
+      router.replace("/login");
       return () => document.body.classList.remove("dashboard-active");
     }
   }, [router]);
