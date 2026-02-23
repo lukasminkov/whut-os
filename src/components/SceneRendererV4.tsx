@@ -116,9 +116,13 @@ interface SceneRendererV4Props {
 }
 
 export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props) {
+  // Must read sceneState to trigger re-render on dismiss/minimize
   const sceneState = useSyncExternalStore(
     SceneManager.subscribe, SceneManager.getState, SceneManager.getState,
   );
+  // Force React to consider sceneState as used (dismiss/minimize reactivity)
+  const _dismissCount = sceneState.dismissedIds.size;
+  const _minimizeCount = sceneState.minimizedIds.size;
 
   const [isMobile, setIsMobile] = useState(false);
   const prevSceneId = useRef(scene.id);
