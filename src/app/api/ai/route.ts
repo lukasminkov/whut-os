@@ -56,15 +56,26 @@ async function updateGoogleTokenInDB(userId: string, newAccessToken: string) {
 async function loadMemories(userId: string): Promise<string> {
   const admin = createAdminClient();
   if (!admin) return '';
+  // Fetch more than needed, then sort by importance * reinforcement in JS
   const { data } = await admin
     .from('memories')
-    .select('category, content')
+    .select('id, category, content, importance, reinforcement_count, last_accessed_at')
     .eq('user_id', userId)
-    .order('importance', { ascending: false })
-    .limit(10);
+    .order('last_accessed_at', { ascending: false })
+    .limit(50);
   if (!data || data.length === 0) return '';
-  const lines = data.map(m => `- [${m.category}] ${m.content}`).join('\n');
-  return `\n\n## What you know about the user:\n${lines}`;
+  // Score and take top 15
+  const scored = data
+    .map(m => ({ ...m, score: (m.importance || 0.5) * (m.reinforcement_count || 1) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 15);
+  // Update last_accessed_at for retrieved memories
+  const ids = scored.map(m => (m as any).id).filter(Boolean);
+  if (ids.length > 0) {
+    admin.from('memories').update({ last_accessed_at: new Date().toISOString() }).in('id', ids).then(() => {});
+  }
+  const lines = scored.map(m => `- [${m.category}] ${m.content}`).join('\n');
+  return `\n\n## What You Know About This User\n${lines}`;
 }
 
 async function loadConversationHistory(conversationId: string): Promise<{ role: string; content: string }[]> {
@@ -140,7 +151,7 @@ async function extractAndSaveMemories(userId: string, userMsg: string, assistant
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-20250414",
         max_tokens: 500,
         messages: [{
           role: "user",
