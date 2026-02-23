@@ -374,7 +374,7 @@ export async function POST(req: NextRequest) {
 
       try {
         let currentMessages = messages;
-        let maxIterations = 8;
+        let maxIterations = 3;
         let totalTokensIn = 0;
         let totalTokensOut = 0;
         let finalSpoken = "";

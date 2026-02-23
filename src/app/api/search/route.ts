@@ -32,8 +32,7 @@ export async function GET(req: NextRequest) {
   try {
     const results = await scrapeBraveSearch(query);
     if (results.length > 0) {
-      const enriched = await enrichWithImages(results.slice(0, 8), req);
-      return Response.json({ results: enriched, query });
+      return Response.json({ results: results.slice(0, 8), query });
     }
   } catch (e) {
     console.error("Brave scrape failed:", e);
@@ -59,7 +58,7 @@ async function scrapeBraveSearch(query: string): Promise<any[]> {
         "Accept": "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(6000),
     }
   );
 
@@ -140,27 +139,6 @@ async function scrapeBraveSearch(query: string): Promise<any[]> {
   });
 
   return results;
-}
-
-async function enrichWithImages(results: any[], req: NextRequest): Promise<any[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `${req.nextUrl.protocol}//${req.nextUrl.host}`;
-
-  const enriched = await Promise.all(
-    results.map(async (r: any) => {
-      if (r.image) return r;
-      try {
-        const res = await fetch(
-          `${baseUrl}/api/image-proxy?url=${encodeURIComponent(r.url)}`,
-          { signal: AbortSignal.timeout(3000) }
-        );
-        const data = await res.json();
-        return { ...r, image: data.image || null };
-      } catch {
-        return r;
-      }
-    })
-  );
-  return enriched;
 }
 
 async function searchWikipedia(query: string): Promise<any[]> {
