@@ -28,9 +28,13 @@ export async function GET(req: NextRequest) {
           url: r.link,
           image: r.imageUrl || r.thumbnail || null,
         }));
-        if (results.length > 0) return Response.json({ results, query });
+        if (results.length > 0) return Response.json({ results, query, provider: "serper" });
       }
-    } catch {}
+    } catch (e: any) {
+      console.error("Serper error:", e.message);
+    }
+  } else {
+    console.log("No SERPER_API_KEY found in env");
   }
 
   // Try Brave API (if key exists)
@@ -49,7 +53,7 @@ export async function GET(req: NextRequest) {
           url: r.url,
           image: r.thumbnail?.src || null,
         }));
-        if (results.length > 0) return Response.json({ results, query });
+        if (results.length > 0) return Response.json({ results, query, provider: "brave-api" });
       }
     } catch {}
   }
@@ -58,7 +62,7 @@ export async function GET(req: NextRequest) {
   try {
     const results = await scrapeBraveSearch(query);
     if (results.length > 0) {
-      return Response.json({ results: results.slice(0, 8), query });
+      return Response.json({ results: results.slice(0, 8), query, provider: "brave-scrape" });
     }
   } catch (e) {
     console.error("Brave scrape failed:", e);
@@ -68,7 +72,7 @@ export async function GET(req: NextRequest) {
   try {
     const wikiResults = await searchWikipedia(query);
     if (wikiResults.length > 0) {
-      return Response.json({ results: wikiResults, query });
+      return Response.json({ results: wikiResults, query, provider: "wikipedia" });
     }
   } catch {}
 
