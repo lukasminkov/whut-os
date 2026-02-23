@@ -5,30 +5,30 @@ export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "scene-a
 
 interface AIOrbProps {
   state?: OrbState;
-  audioLevel?: number; // 0-1, optional for listening modulation
+  audioLevel?: number; // 0-1, optional for listening/speaking modulation
 }
 
 // ── Color definitions (RGB) ──
 const COLORS: Record<OrbState, [number, number, number]> = {
-  idle:           [14, 165, 233],   // #0ea5e9 cyan
-  listening:      [59, 130, 246],   // #3b82f6 blue
-  thinking:       [16, 185, 129],   // #10b981 emerald
-  speaking:       [139, 92, 246],   // #8b5cf6 violet
-  "scene-active": [14, 165, 233],   // muted cyan (same base, opacity handles muting)
+  idle:           [14, 165, 233],   // cyan
+  listening:      [59, 130, 246],   // blue
+  thinking:       [16, 185, 129],   // emerald
+  speaking:       [139, 92, 246],   // violet
+  "scene-active": [56, 189, 210],   // muted cyan
 };
 
-const THINKING_ALT: [number, number, number] = [139, 92, 246]; // purple flicker
+const THINKING_ALT: [number, number, number] = [139, 92, 246];
 
-// ── State configs ──
+// ── State configs (sphere mode) ──
 interface StateConfig {
-  rotSpeed: number;       // rad/s around Y
-  scale: number;          // multiplier
-  particleSpread: number; // radius multiplier
-  breatheAmp: number;     // 0-1
-  breatheFreq: number;    // Hz
+  rotSpeed: number;
+  scale: number;
+  particleSpread: number;
+  breatheAmp: number;
+  breatheFreq: number;
   opacity: number;
-  glowIntensity: number;  // 0-1
-  waveRings: boolean;     // speaking concentric pulses
+  glowIntensity: number;
+  waveRings: boolean;
 }
 
 const CONFIGS: Record<OrbState, StateConfig> = {
@@ -53,8 +53,8 @@ const CONFIGS: Record<OrbState, StateConfig> = {
     glowIntensity: 0.5, waveRings: true,
   },
   "scene-active": {
-    rotSpeed: 0.15, scale: 0.25, particleSpread: 0.9,
-    breatheAmp: 0.008, breatheFreq: 0.2, opacity: 0.6,
+    rotSpeed: 0.15, scale: 1.0, particleSpread: 0.9,
+    breatheAmp: 0.008, breatheFreq: 0.2, opacity: 1.0,
     glowIntensity: 0.15, waveRings: false,
   },
 };
@@ -68,12 +68,12 @@ function lerpColor(a: [number, number, number], b: [number, number, number], t: 
 }
 
 // ── Particle definition ──
+const PARTICLE_COUNT = 2500;
+
 interface Particle {
-  // Spherical coordinates (fixed)
   theta: number;
   phi: number;
   radius: number;
-  // Per-particle randomness
   rnd: number;
   size: number;
   brightnessOffset: number;
@@ -94,30 +94,26 @@ function createParticles(count: number): Particle[] {
   return particles;
 }
 
-// Project 3D → 2D (simple Y-axis rotation + perspective)
+// Project 3D → 2D
 function project(
   theta: number, phi: number, radius: number,
   rotY: number, rotX: number,
   cx: number, cy: number, orbRadius: number
 ): { x: number; y: number; z: number; visible: boolean } {
-  // Spherical to cartesian
   let x = radius * Math.sin(phi) * Math.cos(theta);
   let y = radius * Math.cos(phi);
   let z = radius * Math.sin(phi) * Math.sin(theta);
 
-  // Rotate around Y
   const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
   const x2 = x * cosY - z * sinY;
   const z2 = x * sinY + z * cosY;
   x = x2; z = z2;
 
-  // Subtle X rotation
   const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
   const y2 = y * cosX - z * sinX;
   const z3 = y * sinX + z * cosX;
   y = y2; z = z3;
 
-  // Perspective
   const perspective = 3.5;
   const scale = perspective / (perspective + z);
 
@@ -129,6 +125,34 @@ function project(
   };
 }
 
+// ── Strip position for a particle ──
+function getStripPosition(
+  index: number, total: number,
+  canvasWidth: number, canvasHeight: number,
+  time: number, audioLevel: number,
+  state: OrbState
+): { x: number; y: number } {
+  const progress = index / total;
+  const x = progress * canvasWidth;
+
+  // Wave motion — audio reactive
+  const waveAmp = 8 + audioLevel * 25;
+  const waveFreq = 3;
+  const baseY = canvasHeight - 80;
+  const y = baseY + Math.sin(progress * waveFreq * Math.PI * 2 + time * 2) * waveAmp;
+
+  // Fluid jitter
+  const jitter = Math.sin(index * 0.1 + time * 3) * 2;
+
+  // Listening: breathing pulse
+  let breathOffset = 0;
+  if (state === "listening") {
+    breathOffset = Math.sin(time * 2.5) * 6 * (0.5 + audioLevel);
+  }
+
+  return { x, y: y + jitter + breathOffset };
+}
+
 export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef(state);
@@ -136,9 +160,9 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
   stateRef.current = state;
   audioRef.current = audioLevel;
 
-  const particlesRef = useRef<Particle[]>(createParticles(2500));
+  const particlesRef = useRef<Particle[]>(createParticles(PARTICLE_COUNT));
 
-  // Animated values (lerped each frame)
+  // Animated values
   const anim = useRef({
     rotSpeed: 0.2,
     scale: 1.0,
@@ -149,8 +173,7 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
     glowIntensity: 0.3,
     waveRings: 0,
     color: [14, 165, 233] as [number, number, number],
-    // Position: Y offset ratio (0 = center at 40%, 1 = top)
-    posY: 0,
+    morphProgress: 0, // 0 = sphere, 1 = strip
   });
 
   useEffect(() => {
@@ -160,10 +183,11 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
     if (!ctx) return;
 
     let animId: number;
-    let startTime = performance.now();
+    const startTime = performance.now();
 
-    const LERP_FACTOR = 0.04; // smooth transitions
+    const LERP_FACTOR = 0.04;
     const COLOR_LERP = 0.03;
+    const MORPH_LERP = 0.035; // ~800ms feel
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio, 2);
@@ -185,8 +209,20 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
       const currentState = stateRef.current;
       const config = CONFIGS[currentState];
       const a = anim.current;
+      const audio = audioRef.current;
 
-      // ── Lerp all animated properties ──
+      // ── Determine if strip mode ──
+      const isStripMode = currentState === "scene-active" || currentState === "thinking" || currentState === "speaking" || currentState === "listening";
+      const targetMorph = isStripMode ? 1 : 0;
+      // Faster return to sphere (0.05), slower morph to strip (0.035)
+      const morphLerp = targetMorph < a.morphProgress ? 0.05 : MORPH_LERP;
+      a.morphProgress = lerp(a.morphProgress, targetMorph, morphLerp);
+      // Snap near endpoints
+      if (Math.abs(a.morphProgress - targetMorph) < 0.001) a.morphProgress = targetMorph;
+
+      const mp = a.morphProgress;
+
+      // ── Lerp animated properties ──
       a.rotSpeed = lerp(a.rotSpeed, config.rotSpeed, LERP_FACTOR);
       a.scale = lerp(a.scale, config.scale, LERP_FACTOR);
       a.particleSpread = lerp(a.particleSpread, config.particleSpread, LERP_FACTOR);
@@ -195,15 +231,13 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
       a.opacity = lerp(a.opacity, config.opacity, LERP_FACTOR);
       a.glowIntensity = lerp(a.glowIntensity, config.glowIntensity, LERP_FACTOR);
       a.waveRings = lerp(a.waveRings, config.waveRings ? 1 : 0, LERP_FACTOR);
-      a.posY = lerp(a.posY, currentState === "scene-active" ? 1 : 0, LERP_FACTOR);
 
-      // Color target — thinking flickers between green and purple
+      // Color
       let targetColor = COLORS[currentState];
       if (currentState === "thinking") {
         const flicker = Math.sin(elapsed * 3) * 0.5 + 0.5;
         targetColor = lerpColor(COLORS.thinking, THINKING_ALT, flicker * 0.3);
       }
-      // Speaking: gradient between violet shades
       if (currentState === "speaking") {
         const shift = Math.sin(elapsed * 1.5) * 0.5 + 0.5;
         targetColor = lerpColor([139, 92, 246], [168, 85, 247], shift);
@@ -214,58 +248,59 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
       const w = canvas.width / Math.min(window.devicePixelRatio, 2);
       const h = canvas.height / Math.min(window.devicePixelRatio, 2);
 
-      // Base orb radius (responsive)
+      // Sphere center
       const isMobile = w < 500;
       const baseRadius = isMobile ? 70 : 100;
       const orbRadius = baseRadius * a.scale;
-
-      // Position — offset by sidebar on desktop (200px sidebar → 100px offset)
       const sidebarOffset = w >= 768 ? 100 : 0;
-      const normalCx = w / 2 + sidebarOffset;
-      // Scene-active: top-left of content area (30px from left edge of content)
-      const sceneCx = 55;
-      const cx = lerp(normalCx, sceneCx, a.posY);
-      // Normal: 40% from top. Scene-active: 45px from top
-      const normalY = h * 0.4;
-      const sceneY = 45;
-      const cy = lerp(normalY, sceneY, a.posY);
-
-      // Floating Y offset (idle bob)
-      const floatY = Math.sin(elapsed * Math.PI * 0.5) * 5 * (1 - a.posY);
+      const cx = w / 2 + sidebarOffset;
+      const cy = h * 0.4;
+      const floatY = Math.sin(elapsed * Math.PI * 0.5) * 5 * (1 - mp);
 
       // Breathe
       const breathe = 1 + a.breatheAmp * Math.sin(elapsed * a.breatheFreq * Math.PI * 2);
+      const audioMod = currentState === "listening" ? audio * 0.15 : 0;
 
-      // Audio modulation for listening
-      const audioMod = currentState === "listening" ? audioRef.current * 0.15 : 0;
-
-      // Rotation angle
+      // Rotation
       const rotY = elapsed * a.rotSpeed;
       const rotX = Math.sin(elapsed * 0.3) * 0.15;
 
       // ── Clear ──
       ctx.clearRect(0, 0, w, h);
-      ctx.globalAlpha = a.opacity;
 
-      // ── Glow behind orb ──
-      if (a.glowIntensity > 0.01) {
+      // ── Sphere glow (fades out with morph) ──
+      if (a.glowIntensity > 0.01 && mp < 0.95) {
+        const sphereGlowAlpha = (1 - mp);
         const glowR = orbRadius * 2.5;
         const grad = ctx.createRadialGradient(cx, cy + floatY, orbRadius * 0.3, cx, cy + floatY, glowR);
         const [cr, cg, cb] = a.color;
-        grad.addColorStop(0, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.4})`);
-        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.1})`);
+        grad.addColorStop(0, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.4 * sphereGlowAlpha})`);
+        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${a.glowIntensity * 0.1 * sphereGlowAlpha})`);
         grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
         ctx.fillStyle = grad;
         ctx.fillRect(cx - glowR, cy + floatY - glowR, glowR * 2, glowR * 2);
       }
 
-      // ── Speaking wave rings ──
-      if (a.waveRings > 0.05) {
-        const ringCount = 3;
-        for (let r = 0; r < ringCount; r++) {
+      // ── Strip glow (fades in with morph) ──
+      if (mp > 0.3) {
+        const [cr, cg, cb] = a.color;
+        const glowAlpha = (mp - 0.3) * (1 / 0.7) * 0.18;
+        const stripY = h - 80;
+        const gradient = ctx.createLinearGradient(0, stripY - 25, 0, stripY + 25);
+        gradient.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
+        gradient.addColorStop(0.5, `rgba(${cr},${cg},${cb},${glowAlpha})`);
+        gradient.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, stripY - 25, w, 50);
+      }
+
+      // ── Speaking wave rings (sphere mode only) ──
+      if (a.waveRings > 0.05 && mp < 0.5) {
+        const ringFade = 1 - mp * 2;
+        for (let r = 0; r < 3; r++) {
           const phase = (elapsed * 0.8 + r * 0.33) % 1;
           const ringRadius = orbRadius * (1 + phase * 1.2);
-          const ringAlpha = (1 - phase) * 0.15 * a.waveRings;
+          const ringAlpha = (1 - phase) * 0.15 * a.waveRings * ringFade;
           const [cr, cg, cb] = a.color;
           ctx.beginPath();
           ctx.arc(cx, cy + floatY, ringRadius, 0, Math.PI * 2);
@@ -275,37 +310,62 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         }
       }
 
-      // ── Render particles (back-to-front via z-sort) ──
-      // Build projected array
+      // ── Render particles ──
+      const effectiveSpread = a.particleSpread * breathe + audioMod;
+
+      // Reduce active particles in strip mode
+      const activeCount = Math.floor(lerp(PARTICLE_COUNT, 1500, mp));
+
       type Projected = { x: number; y: number; z: number; size: number; brightness: number };
       const projected: Projected[] = [];
 
-      const effectiveSpread = a.particleSpread * breathe + audioMod;
-
-      for (let i = 0; i < particles.length; i++) {
+      for (let i = 0; i < activeCount; i++) {
         const p = particles[i];
-        // Slight drift per particle
+
+        // Sphere position
         const driftTheta = p.theta + Math.sin(elapsed * 0.3 + p.rnd * 20) * 0.02;
         const driftPhi = p.phi + Math.cos(elapsed * 0.25 + p.rnd * 30) * 0.015;
 
-        const { x, y, z, visible } = project(
+        const sphere = project(
           driftTheta, driftPhi, p.radius * effectiveSpread,
           rotY, rotX,
           cx, cy + floatY, orbRadius
         );
 
-        if (!visible) continue;
+        // Strip position
+        const strip = getStripPosition(i, activeCount, w, h, elapsed, audio, currentState);
 
-        // Depth-based sizing and brightness
-        const depthFactor = (z + 1.5) / 3; // 0 (far) to 1 (near)
-        const sz = p.size * (0.4 + depthFactor * 0.8);
-        const brightness = 0.3 + depthFactor * 0.7 + p.brightnessOffset;
+        // Interpolate
+        const finalX = lerp(sphere.x, strip.x, mp);
+        const finalY = lerp(sphere.y, strip.y, mp);
 
-        projected.push({ x, y, z, size: sz, brightness: Math.max(0, Math.min(1, brightness)) });
+        // Depth/brightness: in sphere mode use z-depth, in strip mode use uniform
+        const depthFactor = (sphere.z + 1.5) / 3;
+        const sphereBrightness = 0.3 + depthFactor * 0.7 + p.brightnessOffset;
+        const stripBrightness = 0.5 + p.brightnessOffset + audio * 0.3;
+        const brightness = lerp(sphereBrightness, stripBrightness, mp);
+
+        // Size: smaller in strip mode
+        const sphereSize = p.size * (0.4 + depthFactor * 0.8);
+        const stripSize = lerp(0.6, 1.2, p.rnd);
+        const sz = lerp(sphereSize, stripSize, mp);
+
+        // In sphere mode, skip back-facing particles; in strip mode show all
+        if (mp < 0.5 && !sphere.visible) continue;
+
+        projected.push({
+          x: finalX,
+          y: finalY,
+          z: sphere.z,
+          size: sz,
+          brightness: Math.max(0, Math.min(1, brightness)),
+        });
       }
 
-      // Sort back to front
-      projected.sort((a, b) => a.z - b.z);
+      // Sort back-to-front (only matters for sphere mode)
+      if (mp < 0.8) {
+        projected.sort((a, b) => a.z - b.z);
+      }
 
       const [cr, cg, cb] = a.color;
       for (const pt of projected) {
@@ -320,7 +380,6 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         ctx.fill();
       }
 
-      ctx.globalAlpha = 1;
       animId = requestAnimationFrame(frame);
     };
 
@@ -332,8 +391,6 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
     };
   }, []);
 
-  const isSceneActive = state === "scene-active";
-
   return (
     <canvas
       ref={canvasRef}
@@ -342,8 +399,8 @@ export default function AIOrb({ state = "idle", audioLevel = 0 }: AIOrbProps) {
         inset: 0,
         width: "100%",
         height: "100%",
-        zIndex: isSceneActive ? 5 : 10,
-        pointerEvents: isSceneActive ? "none" : "none", // orb never captures events
+        zIndex: 20,
+        pointerEvents: "none",
       }}
     />
   );

@@ -448,19 +448,21 @@ export async function POST(req: NextRequest) {
 
           if (toolUses.length === 0) {
             const text = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
-            finalSpoken = text.slice(0, 200);
-            send({
-              type: "card",
-              card: {
-                id: "text-" + Date.now(),
-                type: "content",
-                title: "Response",
-                data: { text },
-                size: "medium",
+            finalSpoken = text.slice(0, 300); // TTS gets a summary
+            // Send as V4 scene directly (not legacy card)
+            const textScene = {
+              id: `scene-text-${Date.now()}`,
+              intent: "",
+              layout: "minimal",
+              elements: [{
+                id: "response",
+                type: "text",
                 priority: 1,
-                interactive: false,
-              },
-            });
+                data: { content: text, typewriter: true },
+              }],
+              spoken: finalSpoken,
+            };
+            send({ type: "scene", scene: textScene });
             send({ type: "done", text: finalSpoken });
             break;
           }

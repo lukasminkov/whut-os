@@ -355,7 +355,7 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full w-full overflow-hidden relative">
-      <AIOrb state={orbState} />
+      <AIOrb state={orbState} audioLevel={tts.isSpeaking ? 0.5 : voice.state === "listening" ? 0.3 : 0} />
 
       {/* Status indicator */}
       <AnimatePresence>
