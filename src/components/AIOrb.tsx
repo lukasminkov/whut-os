@@ -77,6 +77,9 @@ interface Particle {
   rnd: number;
   size: number;
   brightnessOffset: number;
+  layer: number; // 0-2 (back, mid, front)
+  stripWaveOffset: number;
+  stripYOffset: number; // -1 to 1
 }
 
 function createParticles(count: number): Particle[] {
@@ -89,6 +92,9 @@ function createParticles(count: number): Particle[] {
       rnd: Math.random(),
       size: 0.8 + Math.random() * 1.8,
       brightnessOffset: Math.random() * 0.3 - 0.15,
+      layer: Math.floor(Math.random() * 3),
+      stripWaveOffset: Math.random() * Math.PI * 2,
+      stripYOffset: (Math.random() - 0.5) * 2,
     });
   }
   return particles;

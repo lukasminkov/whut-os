@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, type Ref } from "react";
+import { type ReactNode } from "react";
 import { X, Minus } from "lucide-react";
 
 interface GlassPanelProps {
@@ -12,15 +12,13 @@ interface GlassPanelProps {
   minimized?: boolean;
   priority?: 1 | 2 | 3;
   noPadding?: boolean;
-  dragHandleRef?: Ref<HTMLDivElement>;
-  dragListeners?: Record<string, any>;
-  dragAttributes?: Record<string, any>;
   isDragging?: boolean;
+  onDragStart?: (e: React.PointerEvent) => void;
 }
 
 export default function GlassPanel({
   children, title, className = "", onDismiss, onMinimize, minimized, priority = 2, noPadding,
-  dragHandleRef, dragListeners, dragAttributes, isDragging,
+  isDragging, onDragStart,
 }: GlassPanelProps) {
   const isHero = priority === 1;
 
@@ -32,7 +30,6 @@ export default function GlassPanel({
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         border: "1px solid rgba(255,255,255,0.06)",
-        borderTop: "1px solid rgba(255,255,255,0.06)",
         boxShadow: isHero
           ? "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06)"
           : "0 4px 16px rgba(0,0,0,0.2)",
@@ -40,34 +37,37 @@ export default function GlassPanel({
         transition: "box-shadow 0.3s, transform 0.2s",
       }}
     >
-      {/* Title bar */}
+      {/* Title bar — drag handle */}
       {(title || onDismiss || onMinimize) && (
         <div
-          ref={dragHandleRef}
-          {...(dragListeners || {})}
-          {...(dragAttributes || {})}
-          className={`flex items-center justify-between border-b border-white/[0.04] ${isHero ? "px-6 py-3" : "px-4 py-2.5"}`}
+          className={`flex items-center justify-between border-b border-white/[0.04] select-none ${isHero ? "px-6 py-3" : "px-4 py-2.5"}`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
+          onPointerDown={(e) => {
+            // Only start drag from the title area, not from buttons
+            if ((e.target as HTMLElement).closest("button")) return;
+            e.preventDefault();
+            onDragStart?.(e);
+          }}
         >
           {title && (
-            <span className="text-[10px] text-white/40 uppercase tracking-[0.15em] font-medium truncate select-none">
+            <span className="text-[10px] text-white/40 uppercase tracking-[0.15em] font-medium truncate">
               {title}
             </span>
           )}
-          <div className="flex items-center gap-1.5 ml-auto relative z-10"
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
+          <div className="flex items-center gap-1.5 ml-auto">
             {onMinimize && (
-              <button onClick={() => onMinimize()}
-                className="w-6 h-6 flex items-center justify-center rounded-full border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/30 transition-colors text-white/40 hover:text-amber-400 cursor-pointer">
+              <button
+                onClick={() => onMinimize()}
+                className="w-6 h-6 flex items-center justify-center rounded-full border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/30 transition-colors text-white/40 hover:text-amber-400 cursor-pointer"
+              >
                 <Minus size={12} />
               </button>
             )}
             {onDismiss && (
-              <button onClick={() => onDismiss()}
-                className="w-7 h-7 flex items-center justify-center rounded-full border border-white/10 hover:bg-rose-500/20 hover:border-rose-400/30 transition-colors text-white/40 hover:text-rose-400 cursor-pointer">
+              <button
+                onClick={() => onDismiss()}
+                className="w-7 h-7 flex items-center justify-center rounded-full border border-white/10 hover:bg-rose-500/20 hover:border-rose-400/30 transition-colors text-white/40 hover:text-rose-400 cursor-pointer"
+              >
                 <X size={14} />
               </button>
             )}
