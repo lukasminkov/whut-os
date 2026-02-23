@@ -1,31 +1,54 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { AnimatePresence, motion } from "framer-motion";
-import type { Card } from "@/lib/card-types";
-import { layoutCards } from "@/lib/layout-engine";
-import CardRenderer from "@/components/CardRenderer";
 import SceneRendererV4 from "@/components/SceneRendererV4";
 import type { Scene } from "@/lib/scene-v4-types";
 import * as SceneManager from "@/lib/scene-manager";
 import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
-import { useTTS, extractSpeakableText } from "@/hooks/useTTS";
-import { trackUsage, estimateTokens } from "@/lib/usage";
-import { createClient } from "@/lib/supabase";
+import { useTTS } from "@/hooks/useTTS";
 
 const MAX_HISTORY = 40;
-let msgIdCounter = 0;
-function nextMsgId() { return `msg-${++msgIdCounter}-${Date.now()}`; }
+
+// ── Skeleton scene shown while AI is thinking ──
+function SkeletonScene() {
+  return (
+    <div className="relative z-30 w-full h-full flex items-start justify-center pt-16">
+      <div className="w-full max-w-[1000px] px-4 md:px-8 space-y-4">
+        <div className="bg-white/[0.04] rounded-2xl animate-pulse h-[280px] flex flex-col gap-4 p-6">
+          <div className="bg-white/[0.04] rounded-lg h-4 w-32" />
+          <div className="bg-white/[0.04] rounded-lg h-6 w-48" />
+          <div className="flex-1 bg-white/[0.04] rounded-lg" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white/[0.04] rounded-2xl animate-pulse h-[120px] p-4">
+            <div className="bg-white/[0.04] rounded-lg h-3 w-24 mb-3" />
+            <div className="bg-white/[0.04] rounded-lg h-5 w-16" />
+          </div>
+          <div className="bg-white/[0.04] rounded-2xl animate-pulse h-[120px] p-4">
+            <div className="bg-white/[0.04] rounded-lg h-3 w-24 mb-3" />
+            <div className="bg-white/[0.04] rounded-lg h-5 w-16" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Suggestion pills for quiet state ──
+const SUGGESTIONS = [
+  "What's my day look like?",
+  "Show my emails",
+  "Search the web",
+];
 
 export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
-  const [cards, setCards] = useState<Card[]>([]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -55,7 +78,6 @@ export default function DashboardPage() {
     localStorage.setItem("whut_user_profile", JSON.stringify(userProfile));
   }, [userProfile]);
 
-  // Auto-trigger onboarding
   const onboardingTriggered = useRef(false);
   useEffect(() => {
     if (!userProfile.onboardingComplete && !onboardingTriggered.current) {
@@ -69,26 +91,21 @@ export default function DashboardPage() {
   useEffect(() => {
     async function initConversation() {
       try {
-        // Try to resume active conversation
         const res = await fetch('/api/conversations?active=true');
         const data = await res.json();
         if (data.conversation) {
           setConversationId(data.conversation.id);
-          // Load history from DB
           const msgRes = await fetch(`/api/conversations/${data.conversation.id}/messages?limit=20`);
           const msgData = await msgRes.json();
           if (msgData.messages?.length) {
             setChatHistory(msgData.messages.map((m: any) => ({ role: m.role, content: m.content })));
           }
         } else {
-          // Create new conversation
           const createRes = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
           const createData = await createRes.json();
           if (createData.conversation) setConversationId(createData.conversation.id);
         }
-      } catch {
-        // Supabase not configured — use client-side only
-      }
+      } catch {}
     }
     initConversation();
   }, []);
@@ -109,7 +126,6 @@ export default function DashboardPage() {
     });
   }, [tts]);
 
-  // Cmd+M shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "m" && (e.metaKey || e.altKey)) { e.preventDefault(); toggleMode(); }
@@ -118,13 +134,12 @@ export default function DashboardPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleMode]);
 
-  // ── Core AI call with SSE streaming ──
+  // ── Core AI call ──
   const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
     setInput("");
     setThinking(true);
     setStatusText(null);
-    // Don't clear cards — keep visible while thinking
 
     try {
       const connectedIntegrations: string[] = [];
@@ -158,19 +173,15 @@ export default function DashboardPage() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
-      // Parse SSE stream
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let buffer = "";
-      const newCards: Card[] = [];
       let spokenText = "";
-      let receivedScene: Scene | null = null;
+      let receivedScene = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -178,7 +189,7 @@ export default function DashboardPage() {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -188,37 +199,58 @@ export default function DashboardPage() {
             if (event.type === "status") {
               setStatusText(event.text);
             } else if (event.type === "scene") {
-              receivedScene = event.scene;
+              receivedScene = true;
               setCurrentScene(event.scene);
-              setCards([]); // Clear legacy cards
               setThinking(false);
               setStatusText(null);
             } else if (event.type === "card") {
-              const card = event.card as Card;
-              // Ensure required fields
-              if (!card.position) card.position = { x: 50, y: 50 };
-              if (!card.size) card.size = "medium";
-              if (!card.interactive) card.interactive = false;
-              newCards.push(card);
-              // Layout and display progressively
-              setCards(layoutCards([...newCards]));
-              setThinking(false); // Show cards as they arrive
+              // Legacy card events — wrap as minimal V4 scene
+              const card = event.card;
+              if (card?.type === "content" && card?.data?.content) {
+                const textScene: Scene = {
+                  id: `text-${Date.now()}`,
+                  intent: "",
+                  layout: "minimal",
+                  elements: [{
+                    id: "response",
+                    type: "text",
+                    priority: 1,
+                    data: { content: card.data.content, typewriter: true },
+                  }],
+                };
+                setCurrentScene(textScene);
+                receivedScene = true;
+              }
+              setThinking(false);
               setStatusText(null);
             } else if (event.type === "done") {
               spokenText = event.text || "";
             } else if (event.type === "error") {
               console.error("AI error:", event.error);
             }
-          } catch {
-            // Skip malformed JSON lines
-          }
+          } catch {}
         }
+      }
+
+      // If no scene received but we have spoken text, wrap it
+      if (!receivedScene && spokenText) {
+        const textScene: Scene = {
+          id: `text-${Date.now()}`,
+          intent: "",
+          layout: "minimal",
+          elements: [{
+            id: "response",
+            type: "text",
+            priority: 1,
+            data: { content: spokenText, typewriter: true },
+          }],
+        };
+        setCurrentScene(textScene);
       }
 
       setThinking(false);
       setStatusText(null);
 
-      // TTS
       if (spokenText) {
         tts.speak(spokenText, () => {
           if (speechLoopRef.current) voice.startListening();
@@ -249,9 +281,8 @@ export default function DashboardPage() {
         }
       }
 
-      // Update chat history
       setChatHistory(prev => {
-        const updated = [...prev, { role: "user", content: trimmed }, { role: "assistant", content: spokenText || "Showed visual cards." }];
+        const updated = [...prev, { role: "user", content: trimmed }, { role: "assistant", content: spokenText || "Showed visual response." }];
         return updated.slice(-MAX_HISTORY);
       });
 
@@ -261,7 +292,7 @@ export default function DashboardPage() {
       setStatusText(null);
       if (speechLoopRef.current) voice.startListening();
     }
-  }, [chatHistory, userProfile, tts]);
+  }, [chatHistory, userProfile, tts, conversationId]);
 
   const handleSubmit = () => { const t = input.trim(); if (t) sendToAI(t); };
 
@@ -293,12 +324,11 @@ export default function DashboardPage() {
     voice.stopListening();
   }, [voice, tts]);
 
-  // Barge-in
   useEffect(() => {
     if (voice.state === "listening" && tts.isSpeaking) tts.stop();
   }, [voice.state, tts.isSpeaking, tts]);
 
-  // Push-to-talk (chat mode)
+  // Push-to-talk
   useEffect(() => {
     if (appMode !== "chat") return;
     const isInputFocused = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "");
@@ -319,8 +349,7 @@ export default function DashboardPage() {
     return () => { window.removeEventListener("keydown", handleKeyDown); window.removeEventListener("keyup", handleKeyUp); };
   }, [appMode, voice.state, voice.startListening, voice.stopListening]);
 
-  // Orb state
-  const orbState: OrbState = (cards.length > 0 || currentScene)
+  const orbState: OrbState = currentScene
     ? "scene-active"
     : tts.isSpeaking ? "speaking"
     : thinking ? "thinking"
@@ -328,16 +357,17 @@ export default function DashboardPage() {
     : "idle";
 
   const closeCards = () => {
-    setCards([]);
     setCurrentScene(null);
     SceneManager.clearScene();
   };
+
+  const showQuietState = !currentScene && !thinking;
 
   return (
     <div className="h-full w-full overflow-hidden relative">
       <AIOrb state={orbState} />
 
-      {/* Status indicator while AI is working */}
+      {/* Status indicator */}
       <AnimatePresence>
         {statusText && (
           <motion.div
@@ -356,21 +386,16 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Thinking indicator (no status text yet) */}
+      {/* Thinking skeleton */}
       <AnimatePresence>
-        {thinking && !statusText && (
+        {thinking && !currentScene && (
           <motion.div
-            className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.06] backdrop-blur-md"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            className="absolute inset-0 z-30"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.2 } }}
           >
-            <motion.div
-              className="w-1.5 h-1.5 rounded-full bg-white/40"
-              animate={{ opacity: [0.3, 0.8, 0.3] }}
-              transition={{ duration: 0.8, repeat: Infinity }}
-            />
-            <span className="text-[11px] text-white/30">Thinking...</span>
+            <SkeletonScene />
           </motion.div>
         )}
       </AnimatePresence>
@@ -389,10 +414,29 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Legacy card display (fallback) */}
+      {/* Quiet default state */}
       <AnimatePresence>
-        {!currentScene && cards.length > 0 && (
-          <CardRenderer cards={cards} onClose={closeCards} onAddCard={(card) => setCards(prev => [...prev, card])} />
+        {showQuietState && (
+          <motion.div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="mt-24" />
+            <p className="text-lg text-white/30">What can I help with?</p>
+            <div className="flex flex-wrap gap-2 mt-4 pointer-events-auto">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => sendToAI(s)}
+                  className="bg-white/[0.04] border border-white/[0.08] rounded-full px-4 py-2 text-sm text-white/50 hover:text-white/80 hover:bg-white/[0.08] transition-all cursor-pointer"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -415,7 +459,7 @@ export default function DashboardPage() {
                 />
               ))}
             </div>
-            <span className="text-[10px] uppercase tracking-[0.3em] text-white/40">Listening...</span>
+            <span className="text-[10px] uppercase tracking-[0.15em] text-white/40">Listening...</span>
             {input && (
               <motion.p className="text-xs text-white/50 max-w-[280px] text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 {input}
@@ -458,7 +502,7 @@ export default function DashboardPage() {
               placeholder="Ask WHUT OS..."
               className="glass-input flex-1 px-3 md:px-4 py-2.5 md:py-3 text-sm outline-none placeholder:text-white/40"
             />
-            <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.2em]">→</button>
+            <button onClick={handleSubmit} className="glass-button px-4 md:px-5 py-2.5 md:py-3 text-xs uppercase tracking-[0.15em] cursor-pointer">→</button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -477,7 +521,7 @@ export default function DashboardPage() {
             {!speechActive ? (
               <button
                 onClick={startSpeechMode}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 transition-all text-sm text-white/70 hover:text-white"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 transition-all text-sm text-white/70 hover:text-white cursor-pointer"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
@@ -489,7 +533,7 @@ export default function DashboardPage() {
             ) : (
               <button
                 onClick={stopSpeechMode}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all text-sm text-red-400"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all text-sm text-red-400 cursor-pointer"
               >
                 <motion.div className="w-3 h-3 rounded-full bg-red-500" animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} />
                 Stop
@@ -497,7 +541,7 @@ export default function DashboardPage() {
             )}
             <button
               onClick={tts.toggleMute}
-              className="flex items-center justify-center w-10 h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/40 hover:text-white/70"
+              className="flex items-center justify-center w-10 h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/40 hover:text-white/70 cursor-pointer"
               title={tts.isMuted ? "Unmute" : "Mute"}
             >
               {tts.isMuted ? (

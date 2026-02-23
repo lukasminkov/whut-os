@@ -24,11 +24,6 @@ import {
   SearchResultsPrimitive,
   EmbedPrimitive,
 } from "./primitives";
-import GridBackground from "./hud/GridBackground";
-import ProcessingPulse from "./hud/ProcessingPulse";
-
-// Lazy-load particles (heavy)
-const ParticleBackground = lazy(() => import("./hud/ParticleBackground"));
 
 // ── Primitive Dispatcher ────────────────────────────────
 
@@ -56,30 +51,27 @@ function PrimitiveContent({ element }: { element: SceneElement }) {
 // ── Single Element with layout animation ────────────────
 
 function SceneElementView({
-  element, index, total, layout, isMobile,
+  element, index, layout, isMobile,
 }: {
-  element: SceneElement; index: number; total: number; layout: Scene["layout"]; isMobile: boolean;
+  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
-  const gridProps = getElementGridProps(element, index, total, layout, isMobile);
-
-  // Slide direction based on position
-  const slideX = element.position === "left" ? -30 : element.position === "right" ? 30 : 0;
+  const visibleElements = SceneManager.getVisibleElements();
+  const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
 
   return (
     <motion.div
-      layout // framer-motion auto-layout animation for reflows
+      layout
       layoutId={element.id}
       style={gridProps}
-      initial={{ opacity: 0, scale: 0.93, x: slideX, y: slideX === 0 ? 20 : 0 }}
-      animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95, y: -8, transition: { duration: 0.12, ease: "easeOut" } }}
+      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
       transition={{
-        type: "spring",
-        damping: 28,
-        stiffness: 300,
-        delay: index * 0.04,
+        duration: 0.3,
+        delay: index * 0.08,
+        ease: [0.4, 0, 0.2, 1],
         layout: { type: "spring", damping: 25, stiffness: 200 },
       }}
     >
@@ -109,7 +101,6 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
   );
 
   const [isMobile, setIsMobile] = useState(false);
-  const [showPulse, setShowPulse] = useState(false);
   const prevSceneId = useRef(scene.id);
 
   useEffect(() => {
@@ -119,16 +110,13 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Scene transition pulse + apply
   useEffect(() => {
     if (prevSceneId.current !== scene.id) {
-      setShowPulse(true);
-      const t = setTimeout(() => setShowPulse(false), 600);
       prevSceneId.current = scene.id;
       SceneManager.applyScene(scene);
-      return () => clearTimeout(t);
+    } else {
+      SceneManager.applyScene(scene, false);
     }
-    SceneManager.applyScene(scene, false);
   }, [scene]);
 
   const visibleElements = SceneManager.getVisibleElements();
@@ -139,15 +127,6 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
 
   return (
     <div className="relative z-30 w-full h-full overflow-y-auto">
-      {/* Background layers */}
-      <GridBackground />
-      <Suspense fallback={null}>
-        <ParticleBackground />
-      </Suspense>
-
-      {/* Processing pulse on scene change */}
-      <AnimatePresence>{showPulse && <ProcessingPulse key="pulse" />}</AnimatePresence>
-
       {/* Header */}
       <motion.div
         className="relative z-10 flex items-center justify-between px-4 md:px-8 pt-5 pb-3"
@@ -156,22 +135,21 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
         transition={{ delay: 0.1 }}
       >
         <div className="flex items-center gap-3">
-          <div className="hidden md:block w-[80px] shrink-0" />
           {SceneManager.canGoBack() && (
             <button onClick={() => SceneManager.goBack()}
-              className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-2 py-1.5 rounded-lg hover:bg-white/[0.04]">
+              className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors uppercase tracking-[0.15em] px-2 py-1.5 rounded-lg hover:bg-white/[0.04] cursor-pointer">
               <ArrowLeft size={10} /><span>Back</span>
             </button>
           )}
           {scene.intent && (
-            <span className="text-[11px] uppercase tracking-[0.25em] text-white/30 truncate">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-medium truncate">
               {scene.intent}
             </span>
           )}
         </div>
         {onClose && (
           <button onClick={onClose}
-            className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors uppercase tracking-[0.2em] px-3 py-1.5 rounded-lg hover:bg-white/[0.04]">
+            className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors uppercase tracking-[0.15em] px-3 py-1.5 rounded-lg hover:bg-white/[0.04] cursor-pointer">
             <X size={10} /><span>Close all</span>
           </button>
         )}
@@ -196,7 +174,6 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
                   key={el.id}
                   element={el}
                   index={i}
-                  total={visibleElements.length}
                   layout={scene.layout}
                   isMobile={isMobile}
                 />

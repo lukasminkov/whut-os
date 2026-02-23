@@ -178,6 +178,12 @@ body.dashboard-active {
   }
 }
 
+/* Ambient breathe animation */
+@keyframes breathe {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
 /* Scene grid responsive breakpoints */
 @media (max-width: 767px) {
   .scene-grid {
