@@ -66,6 +66,16 @@ export interface MetricData {
   gauge?: { min: number; max: number; value: number };
 }
 
+export interface ListItemDetail {
+  description?: string;
+  image?: string;       // hero image URL
+  address?: string;
+  rating?: string;
+  price?: string;
+  tags?: string[];
+  url?: string;         // link to source
+}
+
 export interface ListItem {
   id: string;
   title: string;
@@ -75,6 +85,7 @@ export interface ListItem {
   image?: string;
   unread?: boolean;
   badge?: string;
+  detail?: ListItemDetail;
 }
 
 export interface ListData {

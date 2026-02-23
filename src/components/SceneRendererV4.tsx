@@ -28,10 +28,10 @@ import {
 
 // ── Primitive Dispatcher ────────────────────────────────
 
-function PrimitiveContent({ element }: { element: SceneElement }) {
+function PrimitiveContent({ element, onListExpandChange }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void }) {
   switch (element.type) {
     case "metric":       return <MetricPrimitive data={element.data} />;
-    case "list":         return <ListPrimitive data={element.data} />;
+    case "list":         return <ListPrimitive data={element.data} elementId={element.id} onExpandChange={onListExpandChange} />;
     case "detail":       return <DetailPrimitive data={element.data} />;
     case "text":         return <TextPrimitive data={element.data} />;
     case "chart-line":   return <ChartLinePrimitive data={element.data} />;
@@ -60,7 +60,26 @@ function DraggableSceneElement({
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
   const visibleElements = SceneManager.getVisibleElements();
-  const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
+  const expanded = SceneManager.getExpandedItem();
+  const isExpanded = expanded?.elementId === element.id;
+  const hasExpanded = expanded !== null;
+
+  let gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
+  if (isExpanded) {
+    gridProps = { ...gridProps, gridColumn: "1 / -1", minHeight: "400px" };
+  }
+
+  const [expandedTitle, setExpandedTitle] = useState<string | undefined>();
+
+  const handleListExpandChange = (exp: boolean, itemTitle?: string) => {
+    if (exp) {
+      SceneManager.expandListItem(element.id, "");
+      setExpandedTitle(itemTitle);
+    } else {
+      SceneManager.collapseListItem();
+      setExpandedTitle(undefined);
+    }
+  };
 
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({
     id: element.id,
@@ -92,8 +111,8 @@ function DraggableSceneElement({
       }}
     >
       <GlassPanel
-        title={element.title}
-        priority={element.priority}
+        title={expandedTitle || element.title}
+        priority={isExpanded ? 1 : element.priority}
         minimized={isMinimized}
         onDismiss={() => SceneManager.dismissElement(element.id)}
         onMinimize={() => SceneManager.minimizeElement(element.id)}
@@ -102,7 +121,7 @@ function DraggableSceneElement({
         dragAttributes={attributes}
         isDragging={isDragging}
       >
-        <PrimitiveContent element={element} />
+        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} />
       </GlassPanel>
     </motion.div>
   );

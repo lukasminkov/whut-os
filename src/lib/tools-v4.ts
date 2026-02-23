@@ -16,7 +16,7 @@ export const DISPLAY_TOOL = {
 
 Primitive types:
 - metric: { label, value, change?, trend?("up"|"down"|"flat"), unit?, gauge?({min,max,value}) } — single KPI with animated number
-- list: { items: [{id, title, subtitle?, meta?, unread?, badge?, image?}] } — clickable list (emails, tasks, etc.). Use image field for thumbnails.
+- list: { items: [{id, title, subtitle?, meta?, image?, badge?, unread?, detail?: {description?, image?, address?, rating?, price?, tags?: string[], url?}}] } — interactive list with click-to-expand. For restaurants/places, ALWAYS include detail with description and image URL from search results.
 - detail: { title, subtitle?, sections: [{label, content, type?("text"|"html"|"code")}], meta? } — expanded view
 - text: { content: "markdown string", typewriter?: true } — rich text/AI explanation
 - chart-line: { points: [{label, value}], color?, label?, yLabel? } — animated line chart
@@ -182,11 +182,22 @@ When building a list of restaurants/places/products from search results:
 DON'T make up data you don't have. If search didn't return prices, don't invent a price chart. Show what you actually know.
 
 **Composition thinking:**
-- What's the ONE thing that answers their question? → That's your hero (priority 1, big, center)
-- What makes it richer? → 2-3 supporting panels (priority 2-3, surrounding)
-- MINIMUM 2 panels for any informational query. Show the answer + context.
+- Hero (pri 1): The main answer — usually a list or primary content
+- 2-3 Supporting panels (pri 2-3): Additional context that makes the response feel intelligent
+  - For restaurant/place queries: neighborhood guide, hero image, cuisine breakdown
+  - For factual queries: chart showing trend, source text, related metric
+  - For email/calendar: unread count metric, upcoming events timeline
+- MINIMUM 3 panels for any search/informational query
 - MAXIMUM 5 panels. More than that is noise.
-- Every query deserves a multi-dimensional response: the answer + the trend + the context.
+- Show images. If search returned og:image URLs, use them in image panels.
+
+## Click-to-Expand Lists
+For restaurants, products, places — include the \`detail\` field on each list item. When the user clicks an item, it expands inline with a hero image, description, and metadata. This is how Jarvis would present options: show the overview, then let the user drill into what interests them.
+
+For each list item's detail:
+- detail.image: use the og:image URL from search results (it will already be in the search data)
+- detail.description: write a 2-3 sentence description based on what you know
+- detail.url: the source URL
 
 **Match the data to the right visual:**
 - A number → metric (big, animated)
@@ -241,9 +252,21 @@ DON'T make up data you don't have. If search didn't return prices, don't invent 
   - Support (pri 2): Metric — "3 meetings today"
 
 **"Best lunch spots in NYC"** → search_web("best lunch spots NYC") → display with:
-  - Hero (pri 1): List of restaurants with images from search results, name, cuisine, one-line description
-  - Support (pri 2): Text — quick take on the NYC lunch scene, tips
-  - That's it. 2 panels. Don't invent price charts or made-up data.
+  - Hero (pri 1): List with each restaurant having:
+    - title: restaurant name
+    - subtitle: "Neighborhood — Cuisine type"
+    - meta: price range ($, $$, $$$)
+    - image: thumbnail from search results
+    - detail.description: 2-3 sentence description
+    - detail.image: larger image URL from search results
+    - detail.address: neighborhood or address
+    - detail.rating: rating if known
+    - detail.price: price range
+    - detail.tags: ["Cuisine", "Vibe"]
+    - detail.url: source URL
+  - Support (pri 2): Text — neighborhood guide / dining tips
+  - Support (pri 2): Image — hero shot of the city's food scene (from search results)
+  - Support (pri 3): Metric — number of notable restaurants in the city
 
 **"Explain blockchain"** → search_web → display with:
   - Hero (pri 1): Text — clear explanation with markdown headers

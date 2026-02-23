@@ -205,5 +205,23 @@ export function clearDismissed() {
 
 export function resetAll() {
   state = createInitialState();
+  expandedItem = null;
   notify();
+}
+
+// Track expanded list items
+let expandedItem: { elementId: string; itemId: string } | null = null;
+
+export function expandListItem(elementId: string, itemId: string) {
+  expandedItem = { elementId, itemId };
+  notify();
+}
+
+export function collapseListItem() {
+  expandedItem = null;
+  notify();
+}
+
+export function getExpandedItem() {
+  return expandedItem;
 }
