@@ -63,6 +63,7 @@ function SceneElementView({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const elementRef = useRef<HTMLDivElement>(null);
 
   const expanded = SceneManager.getExpandedItem();
   const isExpanded = expanded?.elementId === element.id;
@@ -88,18 +89,24 @@ function SceneElementView({
 
   return (
     <motion.div
+      ref={elementRef}
       layout={!isDragging}
       layoutId={element.id}
       style={{
         ...finalGridProps,
-        transform: offset.x || offset.y ? `translate(${offset.x}px, ${offset.y}px)` : undefined,
+        left: offset.x || undefined,
+        top: offset.y || undefined,
         zIndex: isDragging ? 100 : undefined,
         position: "relative",
         opacity: hasExpanded && !isExpanded ? 0.5 : 1,
-        scale: hasExpanded && !isExpanded ? 0.95 : 1,
+        pointerEvents: "auto",
       }}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: hasExpanded && !isExpanded ? 0.5 : 1, y: 0, scale: hasExpanded && !isExpanded ? 0.95 : 1 }}
+      animate={{
+        opacity: hasExpanded && !isExpanded ? 0.5 : 1,
+        y: 0,
+        scale: hasExpanded && !isExpanded ? 0.95 : 1,
+      }}
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
       transition={{
         duration: 0.3,

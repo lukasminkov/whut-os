@@ -57,7 +57,8 @@ export default function GlassPanel({
           <div className="flex items-center gap-1.5 ml-auto">
             {onMinimize && (
               <button
-                onClick={() => onMinimize()}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onMinimize(); }}
+                onPointerDown={(e) => e.stopPropagation()}
                 className="w-6 h-6 flex items-center justify-center rounded-full border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/30 transition-colors text-white/40 hover:text-amber-400 cursor-pointer"
               >
                 <Minus size={12} />
@@ -65,7 +66,8 @@ export default function GlassPanel({
             )}
             {onDismiss && (
               <button
-                onClick={() => onDismiss()}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(); }}
+                onPointerDown={(e) => e.stopPropagation()}
                 className="w-7 h-7 flex items-center justify-center rounded-full border border-white/10 hover:bg-rose-500/20 hover:border-rose-400/30 transition-colors text-white/40 hover:text-rose-400 cursor-pointer"
               >
                 <X size={14} />

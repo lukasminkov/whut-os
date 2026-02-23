@@ -34,6 +34,8 @@ let state = createInitialState();
 let listeners: Array<() => void> = [];
 
 function notify() {
+  // Create a new state object so useSyncExternalStore detects the change
+  state = { ...state, dismissedIds: new Set(state.dismissedIds), minimizedIds: new Set(state.minimizedIds), elementStates: new Map(state.elementStates) };
   for (const l of listeners) l();
 }
 
