@@ -211,18 +211,18 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
         )}
       </motion.div>
 
-      {/* Content grid */}
-      <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0">
+      {/* Content grid — centered on screen */}
+      <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 flex items-center justify-center">
         <LayoutGroup>
           <div
-            className="mx-auto h-full"
+            className="mx-auto w-full"
             style={{
               maxWidth,
               display: "grid",
               gridTemplateColumns: isMobile ? "1fr" : solved.columns,
               gridTemplateRows: isMobile ? "auto" : solved.rows,
               gap: isMobile ? "12px" : "16px",
-              minHeight: isMobile ? "auto" : "calc(100vh - 200px)",
+              maxHeight: isMobile ? "none" : "calc(100vh - 200px)",
             }}
           >
             <AnimatePresence mode="popLayout">
