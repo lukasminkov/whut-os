@@ -9,6 +9,7 @@
  */
 
 import { createAdminClient } from "@/lib/supabase";
+import { generateEmbedding } from "@/lib/embeddings";
 
 const EXTRACTION_MODEL = "claude-haiku-4-20250414";
 
@@ -190,12 +191,14 @@ async function upsertMemory(
       last_accessed_at: new Date().toISOString(),
     }).eq("id", existing[0].id);
   } else {
+    const embedding = await generateEmbedding(mem.content);
     await admin.from("memories").insert({
       user_id: userId,
       category: mem.category,
       content: mem.content,
       importance: mem.importance || 0.5,
       source: "inferred",
+      ...(embedding ? { embedding } : {}),
     });
   }
 }

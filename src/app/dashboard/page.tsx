@@ -178,6 +178,7 @@ export default function DashboardPage() {
       let buffer = "";
       let spokenText = "";
       let receivedScene = false;
+      let streamingText = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -192,7 +193,24 @@ export default function DashboardPage() {
           try {
             const event = JSON.parse(line);
 
-            if (event.type === "status") {
+            if (event.type === "text_delta") {
+              streamingText += event.text;
+              const textScene: Scene = {
+                id: "streaming-text",
+                intent: "",
+                layout: "minimal",
+                elements: [{
+                  id: "response",
+                  type: "text",
+                  priority: 1,
+                  data: { content: streamingText },
+                }],
+              };
+              setCurrentScene(textScene);
+              setThinking(false);
+              setStatusText(null);
+              receivedScene = true;
+            } else if (event.type === "status") {
               setStatusText(event.text);
             } else if (event.type === "scene") {
               receivedScene = true;

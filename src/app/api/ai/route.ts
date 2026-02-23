@@ -19,6 +19,7 @@ import { loadUserMemories, loadTopMemorySummary } from "@/lib/memory";
 import { selectModel } from "@/lib/model-router";
 import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
 import { recordToolError, detectReask } from "@/lib/self-improve";
+import { generateEmbedding, searchMemoriesByVector, searchMemoriesByText } from "@/lib/embeddings";
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -363,13 +364,30 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Parallel data loading for system prompt ──
-  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary] = await Promise.all([
+  // Generate embedding for vector memory search (parallel with other loads)
+  const embeddingPromise = user ? generateEmbedding(message) : Promise.resolve(null);
+
+  const [memoryBlock, topMemories, integrations, usageStats, conversationSummary, queryEmbedding] = await Promise.all([
     user ? loadUserMemories(user.id, 20, message) : Promise.resolve(""),
     user ? loadTopMemorySummary(user.id) : Promise.resolve([]),
     user ? loadUserIntegrations(user.id) : Promise.resolve([]),
     user ? getTodayUsageStats(user.id) : Promise.resolve(null),
     (user && clientConversationId) ? getConversationSummary(clientConversationId) : Promise.resolve(""),
+    embeddingPromise,
   ]);
+
+  // If vector search available, find semantically relevant memories
+  let vectorMemoryBlock = "";
+  if (user && queryEmbedding) {
+    const admin = createAdminClient();
+    if (admin) {
+      const vectorResults = await searchMemoriesByVector(admin, user.id, queryEmbedding, 10);
+      if (vectorResults.length > 0) {
+        vectorMemoryBlock = "\n## Semantically relevant memories:\n" +
+          vectorResults.map((m: any) => `- ${m.content} (relevance: ${(m.similarity * 100).toFixed(0)}%)`).join("\n");
+      }
+    }
+  }
 
   // Load conversation history from DB if available
   let conversationId = clientConversationId;
@@ -385,9 +403,12 @@ export async function POST(req: NextRequest) {
   }
 
   const enrichedContext = { ...context, userProfile: userProfile || {}, integrations };
-  const systemPrompt = buildSystemPrompt(
+  let systemPrompt = buildSystemPrompt(
     enrichedContext, memoryBlock, integrations, topMemories, usageStats, conversationSummary
   );
+  if (vectorMemoryBlock) {
+    systemPrompt += vectorMemoryBlock;
+  }
 
   // Detect rephrase (user correcting themselves)
   const prevUserMessages = (dbHistory.length > 0 ? dbHistory : (history || []))
@@ -432,7 +453,8 @@ export async function POST(req: NextRequest) {
         let hadErrors = false;
 
         while (maxIterations-- > 0) {
-          const response = await fetch("https://api.anthropic.com/v1/messages", {
+          // ── Stream Claude's response ──
+          const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -442,24 +464,96 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({
               model,
               max_tokens: 4096,
+              stream: true,
               system: systemPrompt,
               tools: AI_TOOLS_V4,
               messages: currentMessages,
             }),
           });
 
-          if (!response.ok) {
-            const err = await response.text();
+          if (!claudeResponse.ok) {
+            const err = await claudeResponse.text();
             send({ type: "error", error: err });
             break;
           }
 
-          const data = await response.json();
-          totalTokensIn += data.usage?.input_tokens || 0;
-          totalTokensOut += data.usage?.output_tokens || 0;
+          // Parse SSE stream from Anthropic
+          const reader = claudeResponse.body!.getReader();
+          const sseDecoder = new TextDecoder();
+          let sseBuf = "";
+          let fullContent: any[] = [];
+          let currentTextBlock = "";
+          let streamUsage = { input_tokens: 0, output_tokens: 0 };
+          let stopReason = "";
 
-          const toolUses = (data.content || []).filter((b: any) => b.type === "tool_use");
-          const textBlocks = (data.content || []).filter((b: any) => b.type === "text");
+          while (true) {
+            const { done: rDone, value: rValue } = await reader.read();
+            if (rDone) break;
+
+            sseBuf += sseDecoder.decode(rValue, { stream: true });
+            const sseLines = sseBuf.split("\n");
+            sseBuf = sseLines.pop() || "";
+
+            for (const sseLine of sseLines) {
+              if (!sseLine.startsWith("data: ")) continue;
+              const sseData = sseLine.slice(6);
+              if (sseData === "[DONE]") continue;
+
+              try {
+                const ev = JSON.parse(sseData);
+                switch (ev.type) {
+                  case "message_start":
+                    streamUsage.input_tokens = ev.message?.usage?.input_tokens || 0;
+                    break;
+                  case "content_block_start":
+                    if (ev.content_block?.type === "text") {
+                      currentTextBlock = "";
+                    } else if (ev.content_block?.type === "tool_use") {
+                      fullContent.push({
+                        type: "tool_use",
+                        id: ev.content_block.id,
+                        name: ev.content_block.name,
+                        input: "",
+                      });
+                    }
+                    break;
+                  case "content_block_delta":
+                    if (ev.delta?.type === "text_delta") {
+                      currentTextBlock += ev.delta.text;
+                      // Stream text to client immediately
+                      send({ type: "text_delta", text: ev.delta.text });
+                    } else if (ev.delta?.type === "input_json_delta") {
+                      const lastBlock = fullContent[fullContent.length - 1];
+                      if (lastBlock?.type === "tool_use") {
+                        lastBlock.input += ev.delta.partial_json;
+                      }
+                    }
+                    break;
+                  case "content_block_stop":
+                    if (currentTextBlock) {
+                      fullContent.push({ type: "text", text: currentTextBlock });
+                      currentTextBlock = "";
+                    }
+                    // Parse accumulated tool input JSON
+                    const lastBlock = fullContent[fullContent.length - 1];
+                    if (lastBlock?.type === "tool_use" && typeof lastBlock.input === "string") {
+                      try { lastBlock.input = JSON.parse(lastBlock.input); } catch { lastBlock.input = {}; }
+                    }
+                    break;
+                  case "message_delta":
+                    streamUsage.output_tokens = ev.usage?.output_tokens || 0;
+                    stopReason = ev.delta?.stop_reason || stopReason;
+                    break;
+                }
+              } catch {}
+            }
+          }
+
+          totalTokensIn += streamUsage.input_tokens;
+          totalTokensOut += streamUsage.output_tokens;
+
+          const toolUses = fullContent.filter((b: any) => b.type === "tool_use");
+          const textBlocks = fullContent.filter((b: any) => b.type === "text");
 
           const displayCall = toolUses.find((t: any) => t.name === "display");
           if (displayCall) {
@@ -497,27 +591,15 @@ export async function POST(req: NextRequest) {
 
           if (toolUses.length === 0) {
             const text = textBlocks.map((b: any) => b.text).join("\n") || "I'm here. How can I help?";
-            finalSpoken = text.slice(0, 300); // TTS gets a summary
-            // Send as V4 scene directly (not legacy card)
-            const textScene = {
-              id: `scene-text-${Date.now()}`,
-              intent: "",
-              layout: "minimal",
-              elements: [{
-                id: "response",
-                type: "text",
-                priority: 1,
-                data: { content: text, typewriter: true },
-              }],
-              spoken: finalSpoken,
-            };
-            send({ type: "scene", scene: textScene });
+            finalSpoken = text.slice(0, 300);
+            // Text was already streamed via text_delta events
+            // Send done event to finalize
             send({ type: "done", text: finalSpoken });
             break;
           }
 
           const toolResults: any[] = [];
-          currentMessages = [...currentMessages, { role: "assistant", content: data.content }];
+          currentMessages = [...currentMessages, { role: "assistant", content: fullContent }];
 
           for (const tool of toolUses) {
             toolsUsed.push(tool.name);
