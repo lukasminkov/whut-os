@@ -419,6 +419,22 @@ export default function DashboardPage() {
     SceneManager.clearScene();
   };
 
+  // Handle interactive list item clicks (e.g. clicking an email to drill down)
+  const handleItemAction = useCallback((item: any, element: any) => {
+    // Build a natural language follow-up based on context
+    const elementTitle = element?.title?.toLowerCase() || "";
+    const itemTitle = item?.title || item?.subtitle || "";
+    
+    if (elementTitle.includes("email") || elementTitle.includes("inbox") || elementTitle.includes("mail")) {
+      // Email drill-down: ask AI to open the specific email
+      sendToAI(`Open the email "${itemTitle}" (id: ${item.id})`);
+    } else if (elementTitle.includes("calendar") || elementTitle.includes("schedule")) {
+      sendToAI(`Tell me more about "${itemTitle}"`);
+    } else {
+      sendToAI(`Tell me more about "${itemTitle}"`);
+    }
+  }, [sendToAI]);
+
   const showQuietState = !currentScene && !thinking;
 
   return (
@@ -467,7 +483,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <SceneRendererV4 scene={currentScene} onClose={closeCards} />
+            <SceneRendererV4 scene={currentScene} onClose={closeCards} onItemAction={handleItemAction} />
           </motion.div>
         )}
       </AnimatePresence>

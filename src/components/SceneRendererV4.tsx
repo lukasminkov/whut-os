@@ -27,10 +27,10 @@ import {
 
 // ── Primitive Dispatcher ────────────────────────────────
 
-function PrimitiveContent({ element, onListExpandChange }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void }) {
+function PrimitiveContent({ element, onListExpandChange, onListItemAction }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void; onListItemAction?: (item: any) => void }) {
   switch (element.type) {
     case "metric":       return <MetricPrimitive data={element.data} />;
-    case "list":         return <ListPrimitive data={element.data} elementId={element.id} onExpandChange={onListExpandChange} />;
+    case "list":         return <ListPrimitive data={element.data} elementId={element.id} onExpandChange={onListExpandChange} onItemAction={onListItemAction} />;
     case "detail":       return <DetailPrimitive data={element.data} />;
     case "text":         return <TextPrimitive data={element.data} />;
     case "chart-line":   return <ChartLinePrimitive data={element.data} />;
@@ -55,9 +55,9 @@ function bringToFront() { return ++globalZCounter; }
 // ── Scene Element with Native Drag ──────────────────────
 
 function SceneElementView({
-  element, index, layout, isMobile,
+  element, index, layout, isMobile, onItemAction,
 }: {
-  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean;
+  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; onItemAction?: (item: any, element: SceneElement) => void;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
@@ -153,7 +153,7 @@ function SceneElementView({
           window.addEventListener("pointerup", onUp);
         }}
       >
-        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} />
+        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} />
       </GlassPanel>
     </motion.div>
   );
@@ -164,9 +164,10 @@ function SceneElementView({
 interface SceneRendererV4Props {
   scene: Scene;
   onClose?: () => void;
+  onItemAction?: (item: any, element: SceneElement) => void;
 }
 
-export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props) {
+export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneRendererV4Props) {
   const sceneState = useSyncExternalStore(
     SceneManager.subscribe, SceneManager.getState, SceneManager.getState,
   );
@@ -249,6 +250,7 @@ export default function SceneRendererV4({ scene, onClose }: SceneRendererV4Props
                   index={i}
                   layout={scene.layout}
                   isMobile={isMobile}
+                  onItemAction={onItemAction}
                 />
               ))}
             </AnimatePresence>

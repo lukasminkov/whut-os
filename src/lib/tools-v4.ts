@@ -77,7 +77,7 @@ Priority: 1=hero (center), 2=supporting (sides), 3=ambient (bottom)`,
 export const DATA_TOOLS = [
   {
     name: "fetch_emails",
-    description: "Fetch recent emails from Gmail inbox.",
+    description: "Fetch recent emails from Gmail inbox. Returns id, from, subject, snippet, date, unread for each email. IMPORTANT: When displaying emails, always use the email's `id` as the list item `id` so the user can click to drill into any email.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -214,6 +214,34 @@ If the user asks for information, data, facts, comparisons, or any question that
 The ONLY time you respond with pure text (no display) is casual conversation: greetings, jokes, chitchat, acknowledgments.
 
 If you searched for something, you MUST display the results. Never search and then just say "let me get that for you" — that's broken. Search → display. Always.
+
+## Morning Briefing / "What's my day look like"
+
+When the user asks about their day, give a RICH overview — not just 3 cards. Aim for 5-7 panels:
+- Schedule: today's calendar events (fetch_calendar) — use timeline or list
+- Emails: recent unread emails with sender, subject, and snippet (fetch_emails) — use list. ALWAYS include the email id in each list item's id field so the user can click to drill in.
+- Key metrics: if you know about their business (from memories), show relevant stats
+- Weather/time context: mention the time of day, any relevant context
+- Tasks/reminders: if mentioned in memories or calendar
+- A brief text summary tying it all together
+
+Make the briefing feel like a mission control overview, not a sparse skeleton.
+
+## Email Drill-Down
+
+When showing emails in a list, ALWAYS:
+1. Set each item's \`id\` to the Gmail message ID (from fetch_emails result)
+2. Include \`detail\` with \`description\` set to the email snippet
+3. When the user says "open that email" or "show me the X email" or clicks an email, use \`get_email\` to fetch the full body, then display it as a \`detail\` element with the full email content in sections.
+
+## Follow-Up Interactions
+
+The user may reference items from the current display:
+- "Open that Payper email" → find the email by subject/sender match, call get_email, display as detail
+- "Tell me more about the Steirereck reservation" → look in calendar/emails for details, search if needed
+- "Archive the first one" → archive the email by ID from the list
+
+Always try to resolve references to visible content. If ambiguous, ask which one.
 
 ## What You Never Do
 

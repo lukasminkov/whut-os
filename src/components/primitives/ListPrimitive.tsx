@@ -127,9 +127,7 @@ function ListItemRow({ item, index, isCollapsed, onSelect }: { item: ListItem; i
             {item.badge}
           </span>
         )}
-        {item.detail && (
-          <span className="text-[11px] text-white/20">›</span>
-        )}
+        <span className="text-[11px] text-white/20">›</span>
       </div>
     </motion.button>
   );
@@ -140,9 +138,10 @@ interface ListPrimitiveProps {
   elementId?: string;
   onItemSelect?: (item: ListItem) => void;
   onExpandChange?: (expanded: boolean, itemTitle?: string) => void;
+  onItemAction?: (item: ListItem) => void;
 }
 
-export default function ListPrimitive({ data, elementId, onItemSelect, onExpandChange }: ListPrimitiveProps) {
+export default function ListPrimitive({ data, elementId, onItemSelect, onExpandChange, onItemAction }: ListPrimitiveProps) {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const handleSelect = (item: ListItem) => {
@@ -150,6 +149,9 @@ export default function ListPrimitive({ data, elementId, onItemSelect, onExpandC
       const newExpanded = expandedItemId === item.id ? null : item.id;
       setExpandedItemId(newExpanded);
       onExpandChange?.(newExpanded !== null, newExpanded ? item.title : undefined);
+    } else if (onItemAction) {
+      // No inline detail — trigger AI follow-up (e.g. "open this email")
+      onItemAction(item);
     }
     onItemSelect?.(item);
   };
