@@ -52,17 +52,17 @@ function PrimitiveContent({ element, onListExpandChange, onListItemAction }: { e
 let globalZCounter = 1;
 function bringToFront() { return ++globalZCounter; }
 
-// ── Scene Element with Native Drag ──────────────────────
+// ── Scene Element with Focus & Drag ─────────────────────
 
 function SceneElementView({
-  element, index, layout, isMobile, onItemAction,
+  element, index, layout, isMobile, focusedId, onItemAction,
 }: {
-  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; onItemAction?: (item: any, element: SceneElement) => void;
+  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; focusedId: string | null; onItemAction?: (item: any, element: SceneElement) => void;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
   const visibleElements = SceneManager.getVisibleElements();
-  const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile);
+  const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile, focusedId);
 
   const offsetRef = useRef({ x: 0, y: 0 });
   const draggingRef = useRef(false);
@@ -71,7 +71,10 @@ function SceneElementView({
 
   const expanded = SceneManager.getExpandedItem();
   const isExpanded = expanded?.elementId === element.id;
-  const hasExpanded = expanded !== null;
+
+  const isFocused = focusedId === element.id;
+  const hasFocus = focusedId !== null;
+  const isDimmed = hasFocus && !isFocused;
 
   const [expandedTitle, setExpandedTitle] = useState<string | undefined>();
 
@@ -85,44 +88,56 @@ function SceneElementView({
     }
   };
 
-  // Override grid props when expanded
+  // Override grid props when list-expanded
   let finalGridProps = gridProps;
   if (isExpanded) {
     finalGridProps = { ...gridProps, gridColumn: "1 / -1", minHeight: "400px" };
   }
 
-  // Bring to front on any interaction
   const handleBringToFront = () => {
     setZIndex(bringToFront());
+  };
+
+  const handleFocus = () => {
+    if (visibleElements.length <= 1) return; // No point focusing single panel
+    SceneManager.focusElement(element.id);
   };
 
   return (
     <motion.div
       ref={elementRef}
+      layout // Framer Motion layout animation for smooth reflow
+      layoutId={element.id}
       style={{
         ...finalGridProps,
-        zIndex: zIndex || undefined,
+        zIndex: isFocused ? 10 : zIndex || undefined,
         position: "relative",
         pointerEvents: "auto",
+        minWidth: 0,
+        minHeight: 0,
       }}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{
-        opacity: hasExpanded && !isExpanded ? 0.5 : 1,
+        opacity: 1,
         y: 0,
-        scale: hasExpanded && !isExpanded ? 0.95 : 1,
+        scale: isDimmed ? 0.97 : 1,
       }}
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
       transition={{
-        duration: 0.3,
-        delay: index * 0.08,
+        duration: 0.35,
+        delay: index * 0.06,
         ease: [0.4, 0, 0.2, 1],
+        layout: { duration: 0.4, ease: [0.4, 0, 0.2, 1] },
       }}
       onPointerDown={handleBringToFront}
     >
       <GlassPanel
         title={expandedTitle || element.title}
-        priority={isExpanded ? 1 : element.priority}
+        priority={isFocused ? 1 : isExpanded ? 1 : element.priority}
         minimized={isMinimized}
+        focused={isFocused}
+        dimmed={isDimmed}
+        onFocus={handleFocus}
         onDismiss={() => SceneManager.dismissElement(element.id)}
         onMinimize={() => SceneManager.minimizeElement(element.id)}
         isDragging={draggingRef.current}
@@ -176,6 +191,9 @@ export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneR
 
   const [isMobile, setIsMobile] = useState(false);
   const prevSceneId = useRef(scene.id);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const focusedId = SceneManager.getFocusedId();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -188,13 +206,36 @@ export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneR
     if (prevSceneId.current !== scene.id) {
       prevSceneId.current = scene.id;
       SceneManager.applyScene(scene);
+      // Clear focus when scene changes
+      SceneManager.unfocusElement();
     } else {
       SceneManager.applyScene(scene, false);
     }
   }, [scene]);
 
+  // Click outside any panel to unfocus
+  useEffect(() => {
+    if (!focusedId) return;
+    const handler = (e: MouseEvent) => {
+      // If click is on the grid background (not on a panel), unfocus
+      if (gridRef.current && e.target === gridRef.current) {
+        SceneManager.unfocusElement();
+      }
+    };
+    // Also Escape to unfocus
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") SceneManager.unfocusElement();
+    };
+    window.addEventListener("click", handler);
+    window.addEventListener("keydown", keyHandler);
+    return () => {
+      window.removeEventListener("click", handler);
+      window.removeEventListener("keydown", keyHandler);
+    };
+  }, [focusedId]);
+
   const visibleElements = SceneManager.getVisibleElements();
-  const solved = solveLayout(visibleElements, scene.layout, isMobile);
+  const solved = solveLayout(visibleElements, scene.layout, isMobile, focusedId);
   const maxWidth = getContentMaxWidth(scene.layout);
 
   if (visibleElements.length === 0) return null;
@@ -203,7 +244,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneR
     <div className="relative z-30 w-full h-full overflow-y-auto flex flex-col">
       {/* Header */}
       <motion.div
-        className="relative z-10 flex items-center justify-between px-4 md:px-8 pt-5 pb-3"
+        className="relative z-10 flex items-center justify-between px-4 md:px-8 pt-5 pb-3 shrink-0"
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -229,33 +270,37 @@ export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneR
         )}
       </motion.div>
 
-      {/* Content grid — centered on screen */}
-      <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 flex items-center justify-center">
-          <div
-            className="mx-auto w-full"
-            style={{
-              maxWidth,
-              display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : solved.columns,
-              gridTemplateRows: isMobile ? "auto" : solved.rows,
-              gap: isMobile ? "12px" : "16px",
-              maxHeight: isMobile ? "none" : "calc(100vh - 200px)",
-            }}
-          >
-            <AnimatePresence mode="popLayout">
-              {visibleElements.map((el, i) => (
-                <SceneElementView
-                  key={el.id}
-                  element={el}
-                  index={i}
-                  layout={scene.layout}
-                  isMobile={isMobile}
-                  onItemAction={onItemAction}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-
+      {/* Content grid — centered, auto-sizing */}
+      <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 flex items-start justify-center">
+        <motion.div
+          ref={gridRef}
+          className="mx-auto w-full h-full"
+          layout
+          style={{
+            maxWidth,
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : solved.columns,
+            gridTemplateRows: isMobile ? "auto" : solved.rows,
+            gap: isMobile ? "12px" : "16px",
+            maxHeight: isMobile ? "none" : "calc(100vh - 160px)",
+            alignContent: "start",
+          }}
+          transition={{ layout: { duration: 0.4, ease: [0.4, 0, 0.2, 1] } }}
+        >
+          <AnimatePresence mode="popLayout">
+            {visibleElements.map((el, i) => (
+              <SceneElementView
+                key={el.id}
+                element={el}
+                index={i}
+                layout={scene.layout}
+                isMobile={isMobile}
+                focusedId={focusedId}
+                onItemAction={onItemAction}
+              />
+            ))}
+          </AnimatePresence>
+        </motion.div>
       </div>
     </div>
   );

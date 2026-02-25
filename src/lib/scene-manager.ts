@@ -242,3 +242,27 @@ export function collapseListItem() {
 export function getExpandedItem() {
   return expandedItem;
 }
+
+// ── Focus state (click-to-expand panel) ─────────────────
+let focusedElementId: string | null = null;
+
+export function focusElement(id: string) {
+  if (focusedElementId === id) {
+    // Toggle off
+    focusedElementId = null;
+  } else {
+    focusedElementId = id;
+  }
+  notify();
+}
+
+export function unfocusElement() {
+  if (focusedElementId !== null) {
+    focusedElementId = null;
+    notify();
+  }
+}
+
+export function getFocusedId(): string | null {
+  return focusedElementId;
+}
