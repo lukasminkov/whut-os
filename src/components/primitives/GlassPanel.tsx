@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { type ReactNode, useState, useEffect } from "react";
 import { X, Minus } from "lucide-react";
 
 interface GlassPanelProps {
@@ -21,20 +21,27 @@ export default function GlassPanel({
   isDragging, onDragStart,
 }: GlassPanelProps) {
   const isHero = priority === 1;
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    // Trigger entrance animation
+    const t = setTimeout(() => setEntered(true), 500);
+    return () => clearTimeout(t);
+  }, []);
 
   return (
     <div
-      className={`group relative rounded-2xl overflow-hidden pointer-events-auto transition-shadow duration-300 ${className}`}
+      className={`group relative rounded-2xl overflow-hidden pointer-events-auto transition-shadow duration-300 holo-panel holo-scanlines holo-glow ${!entered ? "holo-enter" : ""} ${className}`}
       style={{
         background: isHero ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.03)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         border: "1px solid rgba(255,255,255,0.06)",
         boxShadow: isHero
-          ? "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06)"
-          : "0 4px 16px rgba(0,0,0,0.2)",
+          ? "0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 20px rgba(0,212,170,0.04)"
+          : "0 4px 16px rgba(0,0,0,0.2), 0 0 12px rgba(0,212,170,0.02)",
         transform: isDragging ? "scale(1.02)" : undefined,
-        transition: "box-shadow 0.3s, transform 0.2s",
+        transition: "box-shadow 0.3s, transform 0.2s, text-shadow 0.3s",
       }}
     >
       {/* Title bar — drag handle */}

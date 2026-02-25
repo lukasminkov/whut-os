@@ -12,6 +12,7 @@ import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useTTS } from "@/hooks/useTTS";
 import { ImagePlus, X, MessageSquare } from "lucide-react";
 import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
+import ThinkingOverlay from "@/components/ThinkingOverlay";
 
 const SUGGESTIONS = [
   "What's my day look like?",
@@ -407,6 +408,11 @@ export default function DashboardPage() {
     return () => { window.removeEventListener("keydown", handleKeyDown); window.removeEventListener("keyup", handleKeyUp); };
   }, [appMode, voice.state, voice.startListening, voice.stopListening]);
 
+  // Dispatch AI thinking state to ambient background
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("whut-ai-state", { detail: { thinking } }));
+  }, [thinking]);
+
   const orbState: OrbState = currentScene
     ? "scene-active"
     : tts.isSpeaking ? "speaking"
@@ -460,19 +466,8 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Thinking skeleton */}
-      <AnimatePresence>
-        {thinking && !currentScene && (
-          <motion.div
-            className="absolute inset-0 z-30"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.2 } }}
-          >
-            <SkeletonScene />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Dramatic AI processing overlay */}
+      <ThinkingOverlay active={thinking && !currentScene} statusText={statusText} />
 
       {/* V4 Scene display — full screen, primary */}
       <AnimatePresence>
