@@ -48,53 +48,118 @@ export function useTTS() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-        signal: controller.signal,
-      })
-        .then((res) => {
+      (async () => {
+        try {
+          const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+            signal: controller.signal,
+          });
           if (!res.ok) throw new Error(`TTS API ${res.status}`);
-          return res.blob();
-        })
-        .then((blob) => {
           if (controller.signal.aborted) return;
 
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audioRef.current = audio;
+          // Try streaming via MediaSource for low-latency playback
+          if (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported("audio/mpeg")) {
+            const mediaSource = new MediaSource();
+            const url = URL.createObjectURL(mediaSource);
+            const audio = new Audio(url);
+            audioRef.current = audio;
 
-          audio.onplay = () => setIsSpeaking(true);
-          audio.onended = () => {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-            audioRef.current = null;
-            onEndRef.current?.();
-            onEndRef.current = null;
-          };
-          audio.onerror = () => {
-            console.warn("ElevenLabs audio playback error — skipping speech");
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-            audioRef.current = null;
-            onEndRef.current?.();
-            onEndRef.current = null;
-          };
+            mediaSource.addEventListener("sourceopen", async () => {
+              const sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
+              const reader = res.body!.getReader();
+              let ended = false;
 
-          audio.play().catch((err) => {
-            console.warn("Audio autoplay blocked — skipping speech:", err);
-            URL.revokeObjectURL(url);
-            onEndRef.current?.();
-            onEndRef.current = null;
-          });
-        })
-        .catch((err) => {
+              const pump = async () => {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    ended = true;
+                    if (mediaSource.readyState === "open" && !sourceBuffer.updating) {
+                      try { mediaSource.endOfStream(); } catch {}
+                    }
+                    return;
+                  }
+                  if (controller.signal.aborted) { reader.cancel(); return; }
+
+                  // Wait for sourceBuffer to be ready
+                  if (sourceBuffer.updating) {
+                    await new Promise<void>(r => sourceBuffer.addEventListener("updateend", () => r(), { once: true }));
+                  }
+                  sourceBuffer.appendBuffer(value);
+                  await new Promise<void>(r => sourceBuffer.addEventListener("updateend", () => r(), { once: true }));
+                }
+              };
+
+              pump().catch(() => {
+                if (!ended && mediaSource.readyState === "open") {
+                  try { mediaSource.endOfStream(); } catch {}
+                }
+              });
+            });
+
+            audio.onplay = () => setIsSpeaking(true);
+            audio.onended = () => {
+              setIsSpeaking(false);
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              onEndRef.current?.();
+              onEndRef.current = null;
+            };
+            audio.onerror = () => {
+              console.warn("Streaming TTS playback error — skipping");
+              setIsSpeaking(false);
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              onEndRef.current?.();
+              onEndRef.current = null;
+            };
+
+            audio.play().catch((err) => {
+              console.warn("Audio autoplay blocked:", err);
+              URL.revokeObjectURL(url);
+              onEndRef.current?.();
+              onEndRef.current = null;
+            });
+          } else {
+            // Fallback: download blob then play (Safari, older browsers)
+            const blob = await res.blob();
+            if (controller.signal.aborted) return;
+
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audioRef.current = audio;
+
+            audio.onplay = () => setIsSpeaking(true);
+            audio.onended = () => {
+              setIsSpeaking(false);
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              onEndRef.current?.();
+              onEndRef.current = null;
+            };
+            audio.onerror = () => {
+              setIsSpeaking(false);
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              onEndRef.current?.();
+              onEndRef.current = null;
+            };
+
+            audio.play().catch(() => {
+              URL.revokeObjectURL(url);
+              onEndRef.current?.();
+              onEndRef.current = null;
+            });
+          }
+        } catch (err: any) {
           if (err.name === "AbortError") return;
           console.warn("ElevenLabs TTS failed — skipping speech:", err);
           onEndRef.current?.();
           onEndRef.current = null;
-        });
+        }
+      })();
     },
     [isMuted, stopAudio]
   );

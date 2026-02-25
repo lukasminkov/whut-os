@@ -8,7 +8,7 @@ interface UseVoiceInputOptions {
   onTranscript?: (text: string) => void;
   onFinalTranscript?: (text: string) => void;
   autoSubmit?: boolean;
-  silenceTimeout?: number; // ms of silence before auto-submitting (default 1500)
+  silenceTimeout?: number; // ms of silence before auto-submitting (default 800)
 }
 
 interface UseVoiceInputReturn {
@@ -23,7 +23,7 @@ interface UseVoiceInputReturn {
 }
 
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
-  const { onTranscript, onFinalTranscript, autoSubmit = true, silenceTimeout = 1500 } = options;
+  const { onTranscript, onFinalTranscript, autoSubmit = true, silenceTimeout = 800 } = options;
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");

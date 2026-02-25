@@ -12,6 +12,8 @@ import { selectModel } from "@/lib/model-router";
 import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
 import { recordToolError } from "@/lib/self-improve";
 import { searchMemoriesSemantic } from "@/lib/embeddings";
+import { cached, invalidate } from "@/lib/api-cache";
+import { detectIntent } from "@/lib/intent-prefetch";
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -182,15 +184,18 @@ async function executeTool(
 
   switch (name) {
     case "fetch_emails": {
-      const emails = await withRefresh(t => getRecentEmails(t, input.maxResults || 10));
+      const cacheKey = `emails:${userId || "anon"}:${input.maxResults || 10}`;
+      const emails = await cached(cacheKey, 60_000, () => withRefresh(t => getRecentEmails(t, input.maxResults || 10)));
       return { result: { emails }, status: "Checked your emails" };
     }
     case "get_email": {
-      const email = await withRefresh(t => getMessage(t, input.id));
+      const cacheKey = `email:${userId || "anon"}:${input.id}`;
+      const email = await cached(cacheKey, 60_000, () => withRefresh(t => getMessage(t, input.id)));
       return { result: email, status: "Reading email" };
     }
     case "fetch_calendar": {
-      const events = await withRefresh(t => getUpcomingEvents(t, input.maxResults || 10));
+      const cacheKey = `calendar:${userId || "anon"}:${input.maxResults || 10}`;
+      const events = await cached(cacheKey, 60_000, () => withRefresh(t => getUpcomingEvents(t, input.maxResults || 10)));
       const normalized = events.map((e: any) => ({
         title: e.summary || e.title || "Untitled",
         start: e.start?.dateTime || e.start?.date || e.start || "",
@@ -200,7 +205,8 @@ async function executeTool(
       return { result: { events: normalized }, status: "Checked your calendar" };
     }
     case "fetch_drive_files": {
-      const files = await withRefresh(t => getRecentDriveFiles(t, input.maxResults || 15));
+      const cacheKey = `drive:${userId || "anon"}:${input.maxResults || 15}`;
+      const files = await cached(cacheKey, 60_000, () => withRefresh(t => getRecentDriveFiles(t, input.maxResults || 15)));
       const normalized = files.map((f: any) => ({
         name: f.name, type: f.mimeType || "",
         modified: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : "",
@@ -232,10 +238,12 @@ async function executeTool(
     }
     case "send_email": {
       const sent = await withRefresh(t => sendEmail(t, input.to, input.subject, input.body));
+      invalidate(`emails:${userId || "anon"}:10`);
       return { result: { success: true, messageId: sent.id }, status: `Sent email to ${input.to}` };
     }
     case "archive_email": {
       await withRefresh(t => archiveEmail(t, input.id));
+      invalidate(`emails:${userId || "anon"}:10`);
       return { result: { success: true }, status: "Archived email" };
     }
     case "read_page": {
@@ -303,17 +311,41 @@ export async function POST(req: NextRequest) {
     saveMessage(conversationId, "user", message).catch(() => {});
   }
 
-  // 5. Build system prompt
+  // 5. Intent prediction — prefetch data for common queries (single-call pattern)
+  let prefetchedBlock = "";
+  const detected = detectIntent(message);
+  if (detected && tokens.access) {
+    try {
+      const prefetchResults = await Promise.allSettled(
+        detected.tools.map(toolName =>
+          executeTool(toolName, {}, tokens, user?.id)
+        )
+      );
+      const parts: string[] = [];
+      for (let i = 0; i < detected.tools.length; i++) {
+        const res = prefetchResults[i];
+        if (res.status === "fulfilled") {
+          parts.push(`### ${detected.tools[i]} result:\n${JSON.stringify(res.value.result)}`);
+        }
+      }
+      if (parts.length > 0) {
+        prefetchedBlock = `\n\n## Pre-fetched data (already retrieved — use directly, do NOT call these tools again):\n${parts.join("\n\n")}`;
+      }
+    } catch { /* prefetch is best-effort */ }
+  }
+
+  // 6. Build system prompt
   const enrichedContext = { ...context, userProfile: userProfile || {}, integrations };
-  const systemPrompt = buildSystemPrompt({
+  let systemPrompt = buildSystemPrompt({
     context: enrichedContext, memoryBlock, integrations, topMemories, usageStats, relevantMemories,
   });
+  if (prefetchedBlock) systemPrompt += prefetchedBlock;
 
-  // 6. Build messages (DB history + current)
+  // 7. Build messages (DB history + current)
   const messages = [...dbHistory, { role: "user", content: userContent }];
   const { model } = selectModel(message);
 
-  // 7. Stream response
+  // 8. Stream response
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -447,36 +479,41 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          // Execute tools and loop
+          // Execute tools in PARALLEL
           currentMessages = [...currentMessages, { role: "assistant", content: fullContent }];
-          const toolResults: any[] = [];
+          const statusMap: Record<string, string> = {
+            fetch_emails: "Checking your emails...",
+            fetch_calendar: "Looking at your calendar...",
+            fetch_drive_files: "Browsing your files...",
+            search_web: "Searching the web...",
+            send_email: "Sending email...",
+            get_email: "Reading email...",
+            archive_email: "Archiving...",
+            read_page: "Reading page...",
+          };
 
           for (const tool of toolUses) {
             toolsUsed.push(tool.name);
-            const statusMap: Record<string, string> = {
-              fetch_emails: "Checking your emails...",
-              fetch_calendar: "Looking at your calendar...",
-              fetch_drive_files: "Browsing your files...",
-              search_web: `Searching for "${tool.input.query || ""}"...`,
-              send_email: "Sending email...",
-              get_email: "Reading email...",
-              archive_email: "Archiving...",
-              read_page: "Reading page...",
-            };
             send({ type: "status", text: statusMap[tool.name] || `Running ${tool.name}...` });
-
-            try {
-              const { result } = await executeTool(tool.name, tool.input, tokens, user?.id);
-              toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: JSON.stringify(result) });
-            } catch (err: any) {
-              hadErrors = true;
-              toolResults.push({
-                type: "tool_result", tool_use_id: tool.id, is_error: true,
-                content: JSON.stringify({ error: err.message || "Tool failed", hint: "Try an alternative approach." }),
-              });
-              if (user) recordToolError(user.id, tool.name, err.message || "", JSON.stringify(tool.input).slice(0, 200)).catch(() => {});
-            }
           }
+
+          const settled = await Promise.allSettled(
+            toolUses.map(tool => executeTool(tool.name, tool.input, tokens, user?.id))
+          );
+
+          const toolResults: any[] = settled.map((res, i) => {
+            const tool = toolUses[i];
+            if (res.status === "fulfilled") {
+              return { type: "tool_result", tool_use_id: tool.id, content: JSON.stringify(res.value.result) };
+            } else {
+              hadErrors = true;
+              if (user) recordToolError(user.id, tool.name, res.reason?.message || "", JSON.stringify(tool.input).slice(0, 200)).catch(() => {});
+              return {
+                type: "tool_result", tool_use_id: tool.id, is_error: true,
+                content: JSON.stringify({ error: res.reason?.message || "Tool failed", hint: "Try an alternative approach." }),
+              };
+            }
+          });
 
           currentMessages = [...currentMessages, { role: "user", content: toolResults }];
         }

@@ -10,8 +10,10 @@ import AIOrb from "@/components/AIOrb";
 import type { OrbState } from "@/components/AIOrb";
 import ModeToggle, { type AppMode } from "@/components/ModeToggle";
 import { useTTS } from "@/hooks/useTTS";
+import { usePrefetch } from "@/hooks/usePrefetch";
 import { ImagePlus, X, MessageSquare } from "lucide-react";
 import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
+import { cacheScene, getCachedScene, isRepeatRequest, getLastScene } from "@/lib/scene-cache";
 import ThinkingOverlay from "@/components/ThinkingOverlay";
 
 const SUGGESTIONS = [
@@ -118,7 +120,9 @@ export default function DashboardPage() {
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tts = useTTS();
+  usePrefetch();
   const speechLoopRef = useRef(false);
+  const lastSceneRef = useRef<any>(null);
 
   const toggleMode = useCallback(() => {
     setAppMode(prev => {
@@ -190,6 +194,20 @@ export default function DashboardPage() {
   // Core AI call
   const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
+
+    // Check scene cache for repeat requests or exact matches
+    const repeat = isRepeatRequest(trimmed);
+    const cachedResult = repeat ? getLastScene() : getCachedScene(trimmed);
+    if (cachedResult) {
+      setCurrentScene(cachedResult.scene);
+      if (cachedResult.spokenText) tts.speak(cachedResult.spokenText);
+      setChatMessages(prev => [...prev,
+        { id: `user-${Date.now()}`, role: "user" as const, content: trimmed, timestamp: new Date() },
+        { id: `assistant-${Date.now()}`, role: "assistant" as const, content: cachedResult.spokenText || "Here you go.", timestamp: new Date() },
+      ]);
+      return;
+    }
+
     setInput("");
     const imagesToSend = [...pendingImages];
     setPendingImages([]);
@@ -268,6 +286,7 @@ export default function DashboardPage() {
               setStatusText(event.text);
             } else if (event.type === "scene") {
               receivedScene = true;
+              lastSceneRef.current = event.scene;
               setCurrentScene(event.scene);
               setThinking(false);
               setStatusText(null);
@@ -314,6 +333,11 @@ export default function DashboardPage() {
 
       setThinking(false);
       setStatusText(null);
+
+      // Cache scene for "show that again" / repeat requests
+      if (receivedScene && lastSceneRef.current) {
+        cacheScene(trimmed, lastSceneRef.current, finalText);
+      }
 
       if (finalText) {
         tts.speak(finalText, () => {
@@ -367,7 +391,7 @@ export default function DashboardPage() {
     onTranscript: (text) => setInput(text),
     onFinalTranscript: handleVoiceFinal,
     autoSubmit: true,
-    silenceTimeout: 1500,
+    silenceTimeout: 800,
   });
 
   const startSpeechMode = useCallback(() => {
