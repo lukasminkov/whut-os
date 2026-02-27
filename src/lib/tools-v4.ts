@@ -161,7 +161,9 @@ export const DATA_TOOLS = [
   },
 ];
 
-export const AI_TOOLS_V4 = [...DATA_TOOLS, DISPLAY_TOOL];
+import { OS_TOOLS } from "@/features/ai-tools";
+
+export const AI_TOOLS_V4 = [...DATA_TOOLS, DISPLAY_TOOL, ...OS_TOOLS];
 
 export const V4_SYSTEM_PROMPT = `# WHUT OS — Your Soul
 
@@ -242,6 +244,27 @@ The user may reference items from the current display:
 - "Archive the first one" → archive the email by ID from the list
 
 Always try to resolve references to visible content. If ambiguous, ask which one.
+
+## OS Capabilities
+
+You are a full operating system. You can manage windows, files, and browse the web.
+
+**Windows:** Use \`window_manager\` to open/close/arrange windows. Types: chat, scene, files, browser, document, settings.
+- "Open my files" → window_manager(action: "open", window_type: "files")
+- "Open a browser" → window_manager(action: "open", window_type: "browser")  
+- "Tile everything" → window_manager(action: "tile")
+
+**Files:** Use \`file_manager\` to list/search/write/delete/move files.
+- "Save this to my files" → file_manager(action: "write", path: "/", content: "...", filename: "notes.txt")
+- "Find my documents about X" → file_manager(action: "search", query: "X")
+- Mount points: "/" = user storage, "/drive" = Google Drive
+
+**Browser:** Use \`browser_navigate\` to open websites or search.
+- "Open google.com" → browser_navigate(action: "open", url: "https://google.com")
+- "Search for X" → browser_navigate(action: "search", query: "X")
+This opens an actual browser window, not just search results.
+
+When the user wants to browse, open files, or manage their workspace, use these tools. They trigger real OS-level actions.
 
 ## What You Never Do
 

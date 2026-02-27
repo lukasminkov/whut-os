@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Crosshair,
   FileText,
@@ -31,6 +31,31 @@ interface Conversation {
   id: string;
   title: string | null;
   last_message_at: string;
+}
+
+function UserProfileBadge() {
+  const profile = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem("whut_user_profile");
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  }, []);
+
+  const name = profile?.name || "User";
+  const initial = name.charAt(0).toUpperCase();
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg, #E84D8A, #D64045)' }}>
+        {initial}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-white/70 truncate">{name}</div>
+        {profile?.company && <div className="text-[10px] text-white/30 truncate">{profile.company}</div>}
+      </div>
+    </div>
+  );
 }
 
 export default function Sidebar() {
@@ -210,15 +235,7 @@ export default function Sidebar() {
             <div className="my-2 border-t border-white/[0.06]" />
 
             {/* User profile */}
-            <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg, #E84D8A, #D64045)' }}>
-                L
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-white/70 truncate">Lukas Minkov</div>
-                <div className="text-[10px] text-white/30 truncate">Whut.AI LLC</div>
-              </div>
-            </div>
+            <UserProfileBadge />
 
             {/* Settings & Sign Out */}
             <div className="flex items-center gap-2 px-3">

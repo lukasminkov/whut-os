@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useGoogleAuth } from "@/hooks/useGoogle";
 
 interface EmailComposeProps {
   data: {
@@ -15,20 +16,8 @@ interface EmailComposeProps {
   onClose?: () => void;
 }
 
-function getGoogleTokens() {
-  try {
-    return JSON.parse(localStorage.getItem("whut_google_tokens") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function isGoogleConnected() {
-  const t = getGoogleTokens();
-  return !!t.access_token;
-}
-
 export default function EmailCompose({ data, onSend, onClose }: EmailComposeProps) {
+  const { tokens, isConnected, fetchGoogle } = useGoogleAuth();
   const [to, setTo] = useState(data.to || "");
   const [subject, setSubject] = useState(data.subject || "");
   const [body, setBody] = useState(data.body || "");
@@ -65,22 +54,12 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
       return;
     }
 
-    const tokens = getGoogleTokens();
-
-    // Already cached in tokens
-    if (tokens.email) {
-      setFromEmail(tokens.email);
+    if (!tokens?.access_token) {
       setLoadingEmail(false);
       return;
     }
 
-    // No access token → not connected
-    if (!tokens.access_token) {
-      setLoadingEmail(false);
-      return;
-    }
-
-    // Fetch from Google userinfo and cache it
+    // Fetch from Google userinfo
     (async () => {
       try {
         const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
@@ -88,12 +67,7 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
         });
         if (res.ok) {
           const info = await res.json();
-          if (info.email) {
-            setFromEmail(info.email);
-            // Cache it in localStorage for next time
-            tokens.email = info.email;
-            localStorage.setItem("whut_google_tokens", JSON.stringify(tokens));
-          }
+          if (info.email) setFromEmail(info.email);
         }
       } catch {
         // Silently fail — will show "Unknown" in worst case
@@ -101,10 +75,10 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
         setLoadingEmail(false);
       }
     })();
-  }, [data.from]);
+  }, [data.from, tokens]);
 
   // Not connected state
-  if (!isGoogleConnected()) {
+  if (!isConnected) {
     return (
       <motion.div
         className="w-full max-w-lg mx-auto rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-8"
@@ -137,8 +111,7 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
     setSending(true);
     setError(null);
     try {
-      const tokens = getGoogleTokens();
-      if (!tokens.access_token) {
+      if (!tokens?.access_token) {
         throw new Error("Google not connected. Go to Integrations to connect.");
       }
       const res = await fetch("/api/google/gmail", {
@@ -152,13 +125,6 @@ export default function EmailCompose({ data, onSend, onClose }: EmailComposeProp
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Failed to send");
-
-      // Update tokens if refreshed
-      if (result.new_access_token) {
-        tokens.access_token = result.new_access_token;
-        if (result.new_expires_at) tokens.expires_at = result.new_expires_at;
-        localStorage.setItem("whut_google_tokens", JSON.stringify(tokens));
-      }
 
       setSent(true);
       onSend?.({ success: true, message: `Sent to ${to}` });

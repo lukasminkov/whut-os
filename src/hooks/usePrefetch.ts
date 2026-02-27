@@ -20,13 +20,14 @@ export function usePrefetch() {
         // prefetching Google API data via the proxy routes.
         // These warm both the proxy cache and any server-side caching.
         const base = window.location.origin;
-        const googleTokens = localStorage.getItem("whut_google_tokens");
-        if (!googleTokens) return;
+        // Fetch Google tokens from DB
+        const tokensRes = await fetch("/api/integrations/tokens?provider=google");
+        if (!tokensRes.ok) return;
+        const tokensData = await tokensRes.json();
+        const integration = tokensData.integrations?.[0];
+        if (!integration?.access_token) return;
 
-        const { access_token } = JSON.parse(googleTokens);
-        if (!access_token) return;
-
-        const headers = { Authorization: `Bearer ${access_token}` };
+        const headers = { Authorization: `Bearer ${integration.access_token}` };
 
         // Fire and forget — parallel prefetch
         await Promise.allSettled([

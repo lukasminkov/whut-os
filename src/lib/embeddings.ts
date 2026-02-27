@@ -1,27 +1,49 @@
 /**
  * Memory search using Postgres full-text search (tsvector).
  * No external API keys needed — runs entirely in Supabase/Postgres.
+ * 
+ * Note: Despite the filename, this does NOT use vector embeddings.
+ * Uses Postgres FTS with ts_rank for relevance scoring, falling back
+ * to importance-based retrieval if the RPC function doesn't exist.
  */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export interface MemoryRecord {
+  id: string;
+  user_id: string;
+  fact: string;
+  category: string;
+  importance: number;
+  reinforcement_count: number;
+  superseded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 /**
  * Search memories by full-text relevance using Postgres ts_rank
  */
 export async function searchMemoriesSemantic(
-  supabase: any,
+  supabase: SupabaseClient | null,
   userId: string,
   query: string,
-  limit: number = 15
-): Promise<any[]> {
-  // Use Supabase RPC for full-text search with ranking
-  const { data } = await supabase.rpc("search_memories", {
-    search_query: query,
-    match_user_id: userId,
-    match_count: limit,
-  });
+  limit: number = 15,
+): Promise<MemoryRecord[]> {
+  if (!supabase) return [];
 
-  if (data && data.length > 0) return data;
+  try {
+    const { data } = await supabase.rpc("search_memories", {
+      search_query: query,
+      match_user_id: userId,
+      match_count: limit,
+    });
 
-  // Fallback: importance-based if FTS returns nothing (e.g., function not yet created)
+    if (data && data.length > 0) return data as MemoryRecord[];
+  } catch {
+    // RPC function may not exist yet — fall through to fallback
+  }
+
   return searchMemoriesByImportance(supabase, userId, limit);
 }
 
@@ -29,10 +51,10 @@ export async function searchMemoriesSemantic(
  * Fallback: importance-based memory retrieval (no search needed)
  */
 export async function searchMemoriesByImportance(
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string,
-  limit: number = 15
-): Promise<any[]> {
+  limit: number = 15,
+): Promise<MemoryRecord[]> {
   const { data } = await supabase
     .from("memories")
     .select("*")
@@ -40,5 +62,5 @@ export async function searchMemoriesByImportance(
     .is("superseded_by", null)
     .order("importance", { ascending: false })
     .limit(limit);
-  return data || [];
+  return (data || []) as MemoryRecord[];
 }
