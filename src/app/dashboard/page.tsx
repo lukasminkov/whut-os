@@ -221,6 +221,7 @@ export default function DashboardPage() {
         { id: `user-${Date.now()}`, role: "user" as const, content: trimmed, timestamp: new Date() },
         { id: `assistant-${Date.now()}`, role: "assistant" as const, content: cachedResult.spokenText || "Here you go.", timestamp: new Date() },
       ]);
+      sendingRef.current = false;
       return;
     }
 
@@ -341,6 +342,21 @@ export default function DashboardPage() {
               }
             } else if (event.type === "error") {
               console.error("AI error:", event.error);
+              // Show error to user in chat
+              const errorMsg = `⚠️ Something went wrong: ${typeof event.error === 'string' ? event.error.slice(0, 200) : 'Request failed'}`;
+              if (!assistantAdded) {
+                assistantAdded = true;
+                setChatMessages(prev => [...prev, {
+                  id: assistantMsgId, role: "assistant", content: errorMsg,
+                  timestamp: new Date(),
+                }]);
+              } else {
+                setChatMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: errorMsg, streaming: false } : m
+                ));
+              }
+              setThinking(false);
+              setStatusText(null);
             }
           } catch {}
         }
@@ -407,6 +423,11 @@ export default function DashboardPage() {
 
     } catch (error: any) {
       console.error("AI error:", error);
+      // Show error to user
+      const errorMsg = `⚠️ Failed to get response: ${error?.message || 'Network error'}. Please try again.`;
+      setChatMessages(prev => [...prev, {
+        id: `error-${Date.now()}`, role: "assistant", content: errorMsg, timestamp: new Date(),
+      }]);
       setThinking(false);
       setStatusText(null);
       if (speechLoopRef.current) voice.startListening();
@@ -587,9 +608,8 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className="mt-24" />
-            <p className="text-lg text-white/30">What can I help with?</p>
-            <div className="flex flex-wrap gap-2 mt-4 pointer-events-auto">
+            <p className="text-lg text-white/30 mt-8">What can I help with?</p>
+            <div className="flex flex-wrap justify-center gap-2 mt-6 pointer-events-auto">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
@@ -645,7 +665,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {voice.state === "listening" && (
           <motion.div
-            className="absolute bottom-32 md:bottom-32 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"
+            className="absolute bottom-24 md:bottom-24 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -674,7 +694,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {voice.state === "error" && voice.error && (
           <motion.div
-            className="absolute bottom-32 md:bottom-32 left-1/2 -translate-x-1/2 z-50 glass-card-bright px-4 py-2 text-xs text-red-400"
+            className="absolute bottom-24 md:bottom-24 left-1/2 -translate-x-1/2 z-50 glass-card-bright px-4 py-2 text-xs text-red-400"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -688,7 +708,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {appMode === "chat" && (
           <motion.div
-            className="absolute bottom-16 md:bottom-16 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
+            className="absolute bottom-6 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -754,7 +774,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {appMode === "speech" && (
           <motion.div
-            className="absolute bottom-16 md:bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3"
+            className="absolute bottom-6 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
