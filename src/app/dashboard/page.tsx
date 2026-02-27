@@ -584,7 +584,7 @@ export default function DashboardPage() {
 
       {/* Status indicator */}
       <AnimatePresence>
-        {statusText && (
+        {statusText && currentScene && (
           <motion.div
             className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.06] border border-white/[0.08] backdrop-blur-md"
             initial={{ opacity: 0, y: -10 }}
