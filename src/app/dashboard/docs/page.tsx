@@ -13,6 +13,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import DocumentEditor from "@/components/DocumentEditor";
+import { screenContextStore } from "@/lib/screen-context";
 
 interface DocMeta {
   id: string;
@@ -62,6 +63,25 @@ export default function DocsPage() {
   useEffect(() => {
     fetchDocs();
   }, [fetchDocs]);
+
+  // Report active view and document to screen context
+  useEffect(() => {
+    screenContextStore.setActiveView("docs");
+    return () => { screenContextStore.setActiveView("dashboard"); };
+  }, []);
+
+  useEffect(() => {
+    if (activeDoc) {
+      screenContextStore.setActiveDocument({
+        id: activeDoc.id,
+        title: activeDoc.title,
+        snippet: activeDoc.content_text?.slice(0, 200),
+        type: "document",
+      });
+    } else {
+      screenContextStore.setActiveDocument(null);
+    }
+  }, [activeDoc]);
 
   const openDoc = async (id: string) => {
     try {

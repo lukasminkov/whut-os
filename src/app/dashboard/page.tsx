@@ -16,6 +16,7 @@ import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
 import { cacheScene, getCachedScene, isRepeatRequest, getLastScene } from "@/lib/scene-cache";
 import ThinkingOverlay from "@/components/ThinkingOverlay";
 import { useWindowManager } from "@/features/window-manager";
+import { screenContextStore, serializeScreenContext, hasScreenContext } from "@/lib/screen-context";
 import Workspace from "@/features/window-manager/Workspace";
 import type { WindowType } from "@/features/window-manager";
 import FileBrowser from "@/features/file-system/FileBrowser";
@@ -59,6 +60,11 @@ export default function DashboardPage() {
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { openWindow } = useWindowManager();
+
+  // Report active view
+  useEffect(() => {
+    screenContextStore.setActiveView("dashboard");
+  }, []);
 
   // User profile
   const [userProfile, setUserProfile] = useState<{
@@ -242,6 +248,8 @@ export default function DashboardPage() {
             screen: { width: window.innerWidth, height: window.innerHeight },
             time: new Date().toISOString(),
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            screenContext: serializeScreenContext(screenContextStore.getState()),
+            hasScreenContext: hasScreenContext(screenContextStore.getState()),
           },
         }),
       });
@@ -475,12 +483,19 @@ export default function DashboardPage() {
 
   // Handle interactive list item clicks (e.g. clicking an email to drill down)
   const handleItemAction = useCallback((item: any, element: any) => {
-    // Build a natural language follow-up based on context
     const elementTitle = element?.title?.toLowerCase() || "";
     const itemTitle = item?.title || item?.subtitle || "";
     
     if (elementTitle.includes("email") || elementTitle.includes("inbox") || elementTitle.includes("mail")) {
-      // Email drill-down: ask AI to open the specific email
+      // Report active email to screen context
+      screenContextStore.setActiveEmail({
+        id: item.id || "",
+        subject: itemTitle,
+        from: item.subtitle || item.meta || "",
+        snippet: item.description || item.body || "",
+        threadId: item.threadId,
+        date: item.date || item.meta,
+      });
       sendToAI(`Open the email "${itemTitle}" (id: ${item.id})`);
     } else if (elementTitle.includes("calendar") || elementTitle.includes("schedule")) {
       sendToAI(`Tell me more about "${itemTitle}"`);

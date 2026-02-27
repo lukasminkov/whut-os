@@ -68,6 +68,20 @@ export function buildSystemPrompt(opts: PromptOptions): string {
 
   if (memoryBlock) prompt += memoryBlock;
 
+  // Screen context injection
+  const screenContext = context?.screenContext as string | undefined;
+  const hasScreen = context?.hasScreenContext as boolean | undefined;
+  if (hasScreen && screenContext) {
+    prompt += `\n\n## ${screenContext}`;
+    prompt += `\n\n## Reference Resolution
+You have awareness of what the user is currently viewing. When they reference "this", "it", "that", "this email", "that chart", "this document", or similar deictic references, resolve them from the [SCREEN CONTEXT] block above. For example:
+- "Reply to this" → use the active email from screen context
+- "What does this chart show?" → use the active visualization
+- "Archive it" → use the currently viewed email or document
+- "Open that" → use the most recently referenced item
+Do NOT ask the user to clarify what they mean when screen context makes it obvious.`;
+  }
+
   prompt += `\n\n## Guidelines
 - When uncertain, say so clearly rather than guessing.
 - If a tool call fails, analyze why and try an alternative approach.

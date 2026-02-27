@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, type KeyboardEvent } from "react";
+import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { BrowserTab } from "./types";
+import { screenContextStore } from "@/lib/screen-context";
 
 let tabCounter = 0;
 
@@ -58,6 +59,19 @@ export default function EmbeddedBrowser({ initialUrl }: EmbeddedBrowserProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  // Report browser state to screen context
+  useEffect(() => {
+    if (activeTab) {
+      screenContextStore.setBrowserState({
+        url: activeTab.url,
+        title: activeTab.title,
+      });
+    }
+    return () => {
+      screenContextStore.setBrowserState(null);
+    };
+  }, [activeTab?.url, activeTab?.title]);
 
   const navigateTo = useCallback(
     (url: string) => {

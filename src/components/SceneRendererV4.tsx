@@ -6,6 +6,7 @@ import { X, ArrowLeft } from "lucide-react";
 import type { Scene, SceneElement } from "@/lib/scene-v4-types";
 import { solveLayout, getElementGridProps, getContentMaxWidth } from "@/lib/layout-solver-v4";
 import * as SceneManager from "@/lib/scene-manager";
+import { screenContextStore } from "@/lib/screen-context";
 import {
   GlassPanel,
   MetricPrimitive,
@@ -27,11 +28,11 @@ import {
 
 // ── Primitive Dispatcher ────────────────────────────────
 
-function PrimitiveContent({ element, onListExpandChange, onListItemAction }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void; onListItemAction?: (item: any) => void }) {
+function PrimitiveContent({ element, onListExpandChange, onListItemAction, sendToAI }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void; onListItemAction?: (item: any) => void; sendToAI?: (message: string) => void }) {
   switch (element.type) {
     case "metric":       return <MetricPrimitive data={element.data} />;
     case "list":         return <ListPrimitive data={element.data} elementId={element.id} onExpandChange={onListExpandChange} onItemAction={onListItemAction} />;
-    case "detail":       return <DetailPrimitive data={element.data} />;
+    case "detail":       return <DetailPrimitive data={element.data} sendToAI={sendToAI} />;
     case "text":         return <TextPrimitive data={element.data} />;
     case "chart-line":   return <ChartLinePrimitive data={element.data} />;
     case "chart-bar":    return <ChartBarPrimitive data={element.data} />;
@@ -57,7 +58,7 @@ function bringToFront() { return ++globalZCounter; }
 function SceneElementView({
   element, index, layout, isMobile, focusedId, onItemAction,
 }: {
-  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; focusedId: string | null; onItemAction?: (item: any, element: SceneElement) => void;
+  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; focusedId: string | null; onItemAction?: (item: any, element: SceneElement) => void; sendToAI?: (message: string) => void;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
@@ -180,9 +181,10 @@ interface SceneRendererV4Props {
   scene: Scene;
   onClose?: () => void;
   onItemAction?: (item: any, element: SceneElement) => void;
+  sendToAI?: (message: string) => void;
 }
 
-export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneRendererV4Props) {
+export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI }: SceneRendererV4Props) {
   const sceneState = useSyncExternalStore(
     SceneManager.subscribe, SceneManager.getState, SceneManager.getState,
   );
@@ -206,12 +208,29 @@ export default function SceneRendererV4({ scene, onClose, onItemAction }: SceneR
     if (prevSceneId.current !== scene.id) {
       prevSceneId.current = scene.id;
       SceneManager.applyScene(scene);
-      // Clear focus when scene changes
       SceneManager.unfocusElement();
     } else {
       SceneManager.applyScene(scene, false);
     }
   }, [scene]);
+
+  // Report active visualization to screen context
+  useEffect(() => {
+    const elements = scene.elements || [];
+    screenContextStore.setActiveVisualization({
+      id: scene.id,
+      intent: scene.intent || "",
+      layout: scene.layout || "focused",
+      elementTypes: elements.map((el) => el.type),
+      elementSummaries: elements.map(
+        (el) =>
+          `${el.type}${el.data?.title ? `: ${el.data.title}` : ""}${el.data?.label ? `: ${el.data.label}` : ""}`
+      ),
+    });
+    return () => {
+      screenContextStore.setActiveVisualization(null);
+    };
+  }, [scene.id, scene.intent, scene.layout, scene.elements]);
 
   // Click outside any panel to unfocus
   useEffect(() => {
