@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
               "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model, max_tokens: 4096, stream: true,
+              model, max_tokens: 8192, stream: true,
               system: systemPrompt, tools: AI_TOOLS_V4,
               messages: currentMessages,
             }),
@@ -194,14 +194,19 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Suppress unused variable warning
-          void stopReason;
-
           totalTokensIn += usage.input_tokens;
           totalTokensOut += usage.output_tokens;
 
           const toolUses = fullContent.filter(b => b.type === "tool_use");
           const textBlocks = fullContent.filter(b => b.type === "text");
+
+          // Truncation detection: if we got end_turn with only text (no tool calls),
+          // and the output hit near max_tokens, the response was likely truncated
+          if (stopReason === "max_tokens" && toolUses.length === 0) {
+            console.warn("[AI] Response truncated (hit max_tokens). Output tokens:", usage.output_tokens);
+            send({ type: "error", error: "Response was too long and got cut off. Please try a more specific question." });
+            break;
+          }
 
           // Handle display tool
           const displayCall = toolUses.find(t => t.name === "display");
@@ -278,7 +283,21 @@ export async function POST(req: NextRequest) {
 
         // 9. Save assistant message to DB
         if (user && conversationId && fullResponseText) {
-          saveMessage(conversationId, "assistant", fullResponseText, {
+          // For visualization responses, include a summary of what was shown
+          // so the AI has context for follow-up questions
+          let historyText = fullResponseText;
+          if (sceneData) {
+            const elements = (sceneData as { elements?: Array<{ type?: string; data?: { title?: string } }> }).elements || [];
+            if (elements.length > 0) {
+              const summary = elements
+                .slice(0, 8)
+                .map(el => el.data?.title || el.type || "item")
+                .join(", ");
+              const extra = elements.length > 8 ? ` and ${elements.length - 8} more` : "";
+              historyText += `\n[Showed ${elements.length} visual element(s): ${summary}${extra}]`;
+            }
+          }
+          saveMessage(conversationId, "assistant", historyText, {
             scene_data: sceneData ?? undefined,
             model,
             tokens_in: totalTokensIn,
