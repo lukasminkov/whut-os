@@ -104,6 +104,8 @@ export interface DetailData {
   subtitle?: string;
   sections: DetailSection[];
   meta?: Record<string, string>;
+  /** Contextual data for action providers. Key = provider name (e.g. "email"). */
+  context?: Record<string, Record<string, unknown>>;
 }
 
 export interface TextData {

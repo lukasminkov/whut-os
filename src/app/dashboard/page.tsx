@@ -520,7 +520,7 @@ export default function DashboardPage() {
         );
       case "scene":
         return currentScene ? (
-          <SceneRendererV4 scene={currentScene} onItemAction={handleItemAction} />
+          <SceneRendererV4 scene={currentScene} onItemAction={handleItemAction} sendToAI={sendToAI} />
         ) : (
           <div className="h-full flex items-center justify-center text-white/20 text-sm">No active scene</div>
         );
@@ -567,7 +567,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <SceneRendererV4 scene={currentScene} onClose={closeCards} onItemAction={handleItemAction} />
+            <SceneRendererV4 scene={currentScene} onClose={closeCards} onItemAction={handleItemAction} sendToAI={sendToAI} />
           </motion.div>
         )}
       </AnimatePresence>

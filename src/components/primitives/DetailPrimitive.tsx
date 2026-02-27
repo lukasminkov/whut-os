@@ -1,14 +1,42 @@
 "use client";
 
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import type { DetailData } from "@/lib/scene-v4-types";
+import { resolveActions } from "@/lib/actions";
+import type { ActionHelpers } from "@/lib/actions";
+import { useGoogleAuth } from "@/hooks/useGoogle";
+import ActionBar from "./ActionBar";
 
 interface DetailPrimitiveProps {
   data: DetailData;
+  sendToAI?: (message: string) => void;
 }
 
-export default function DetailPrimitive({ data }: DetailPrimitiveProps) {
-  const { title, subtitle, sections, meta } = data;
+export default function DetailPrimitive({ data, sendToAI }: DetailPrimitiveProps) {
+  const { title, subtitle, sections, meta, context } = data;
+  const { tokens } = useGoogleAuth();
+
+  const helpers: ActionHelpers = useMemo(() => ({
+    googleFetch: async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (tokens?.access_token) {
+        headers.set("x-google-access-token", tokens.access_token);
+        headers.set("x-google-refresh-token", tokens.refresh_token || "");
+      }
+      return fetch(url, { ...init, headers });
+    },
+    sendToAI,
+    toast: (message: string, type?: "success" | "error") => {
+      // Simple toast — can be replaced with a proper toast system
+      console.log(`[${type || "info"}] ${message}`);
+    },
+  }), [tokens, sendToAI]);
+
+  const actions = useMemo(
+    () => resolveActions(context as Record<string, Record<string, unknown>> | undefined, helpers),
+    [context, helpers],
+  );
 
   return (
     <div className="space-y-4">
@@ -56,6 +84,9 @@ export default function DetailPrimitive({ data }: DetailPrimitiveProps) {
           )}
         </motion.div>
       ))}
+
+      {/* Contextual Actions */}
+      <ActionBar actions={actions} />
     </div>
   );
 }

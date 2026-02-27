@@ -56,7 +56,7 @@ function bringToFront() { return ++globalZCounter; }
 // ── Scene Element with Focus & Drag ─────────────────────
 
 function SceneElementView({
-  element, index, layout, isMobile, focusedId, onItemAction,
+  element, index, layout, isMobile, focusedId, onItemAction, sendToAI,
 }: {
   element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; focusedId: string | null; onItemAction?: (item: any, element: SceneElement) => void; sendToAI?: (message: string) => void;
 }) {
@@ -169,7 +169,7 @@ function SceneElementView({
           window.addEventListener("pointerup", onUp);
         }}
       >
-        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} />
+        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
       </GlassPanel>
     </motion.div>
   );
@@ -316,6 +316,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                 isMobile={isMobile}
                 focusedId={focusedId}
                 onItemAction={onItemAction}
+                sendToAI={sendToAI}
               />
             ))}
           </AnimatePresence>

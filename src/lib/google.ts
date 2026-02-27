@@ -193,6 +193,23 @@ export async function getMessage(accessToken: string, messageId: string) {
   };
 }
 
+// Gmail - Mark as read (remove UNREAD label)
+export async function markAsRead(accessToken: string, messageId: string) {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+    }
+  );
+  if (!res.ok) throw new Error(`Gmail markAsRead failed ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // Gmail - Archive (remove INBOX label)
 export async function archiveEmail(accessToken: string, messageId: string) {
   const res = await fetch(
