@@ -15,9 +15,13 @@ export type PrimitiveType =
   | "embed"
   | "chart-radar"
   | "chart-candlestick"
-  | "chart-gauge";
+  | "chart-gauge"
+  | "rich-entity-card"
+  | "map-view"
+  | "gallery"
+  | "comparison-table";
 
-export type LayoutMode = "ambient" | "focused" | "split" | "immersive" | "minimal";
+export type LayoutMode = "ambient" | "focused" | "split" | "immersive" | "minimal" | "grid" | "stack" | "cinematic";
 export type ElementPriority = 1 | 2 | 3;
 export type ElementSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
 export type ElementPosition = "left" | "right" | "center" | "top" | "bottom" | "float";
@@ -179,4 +183,59 @@ export interface EmbedData {
   html?: string;
   url?: string;
   title?: string;
+}
+
+// ── Rich Response Primitives ────────────────────────────
+
+export interface RichEntityCardData {
+  title: string;
+  subtitle?: string;
+  heroImage?: string;
+  rating?: { score: number; count?: number; source?: string };
+  price?: string; // "$", "$$", "$$$", "$$$$" or "€10-25"
+  tags?: string[];
+  description?: string;
+  highlights?: string[]; // menu highlights, key features, etc.
+  actions?: { label: string; url?: string; type?: "primary" | "secondary" }[];
+  location?: { lat: number; lng: number; address?: string };
+  reviewSnippet?: string;
+}
+
+export interface MapPin {
+  lat: number;
+  lng: number;
+  label?: string;
+  color?: string;
+}
+
+export interface MapViewData {
+  pins: MapPin[];
+  center?: { lat: number; lng: number };
+  zoom?: number;
+  title?: string;
+  style?: "dark" | "light";
+}
+
+export interface GalleryImage {
+  src: string;
+  alt?: string;
+  caption?: string;
+}
+
+export interface GalleryData {
+  images: GalleryImage[];
+  title?: string;
+}
+
+export interface ComparisonColumn {
+  name: string;
+  image?: string;
+  values: Record<string, string | number>;
+}
+
+export interface ComparisonTableData {
+  columns: ComparisonColumn[];
+  metrics: string[]; // row labels
+  title?: string;
+  highlightBest?: boolean;
 }

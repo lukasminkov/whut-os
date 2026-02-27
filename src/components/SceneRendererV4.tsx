@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useSyncExternalStore, useCallback } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useState, useRef, useSyncExternalStore, useCallback, useMemo } from "react";
+import { AnimatePresence, motion, useMotionValue, useSpring } from "framer-motion";
 import { X, ArrowLeft } from "lucide-react";
 import type { Scene, SceneElement } from "@/lib/scene-v4-types";
-import { solveLayout, getElementGridProps, getContentMaxWidth } from "@/lib/layout-solver-v4";
+import { solveHUDLayout, getContentMaxWidth, type HUDLayout, type ElementLayout } from "@/lib/layout-solver-v4";
 import * as SceneManager from "@/lib/scene-manager";
 import { screenContextStore } from "@/lib/screen-context";
 import { ActionBar, AIOverlay, useElementActions } from "./ActionBar";
@@ -25,6 +25,10 @@ import {
   TimelinePrimitive,
   SearchResultsPrimitive,
   EmbedPrimitive,
+  RichEntityCardPrimitive,
+  MapViewPrimitive,
+  GalleryPrimitive,
+  ComparisonTablePrimitive,
 } from "./primitives";
 
 // ── Primitive Dispatcher ────────────────────────────────
@@ -46,26 +50,61 @@ function PrimitiveContent({ element, onListExpandChange, onListItemAction, sendT
     case "timeline":     return <TimelinePrimitive data={element.data} />;
     case "search-results": return <SearchResultsPrimitive data={element.data} />;
     case "embed":        return <EmbedPrimitive data={element.data} />;
+    case "rich-entity-card": return <RichEntityCardPrimitive data={element.data} />;
+    case "map-view":     return <MapViewPrimitive data={element.data} />;
+    case "gallery":      return <GalleryPrimitive data={element.data} />;
+    case "comparison-table": return <ComparisonTablePrimitive data={element.data} />;
     default:             return <p className="text-xs text-white/30">Unknown: {element.type}</p>;
   }
 }
 
-// ── Z-index counter for bring-to-front ──────────────────
-let globalZCounter = 1;
-function bringToFront() { return ++globalZCounter; }
+// ── Spring animation configs ────────────────────────────
 
-// ── Scene Element with Focus & Drag ─────────────────────
+const springTransition = {
+  type: "spring" as const,
+  stiffness: 200,
+  damping: 28,
+  mass: 0.8,
+};
 
-function SceneElementView({
-  element, index, layout, isMobile, focusedId, onItemAction, sendToAI,
+const gentleSpring = {
+  type: "spring" as const,
+  stiffness: 150,
+  damping: 24,
+  mass: 1,
+};
+
+// ── HUD Element (Absolute positioned) ───────────────────
+
+function HUDElement({
+  element,
+  index,
+  elementLayout,
+  isMobile,
+  focusedId,
+  totalElements,
+  onItemAction,
+  sendToAI,
+  onPromote,
+  mouseX,
+  mouseY,
 }: {
-  element: SceneElement; index: number; layout: Scene["layout"]; isMobile: boolean; focusedId: string | null; onItemAction?: (item: any, element: SceneElement) => void; sendToAI?: (message: string) => void;
+  element: SceneElement;
+  index: number;
+  elementLayout: ElementLayout;
+  isMobile: boolean;
+  focusedId: string | null;
+  totalElements: number;
+  onItemAction?: (item: any, element: SceneElement) => void;
+  sendToAI?: (message: string) => void;
+  onPromote: (id: string) => void;
+  mouseX: number;
+  mouseY: number;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
-  const visibleElements = SceneManager.getVisibleElements();
+  const [isHovered, setIsHovered] = useState(false);
 
-  // Universal action system
   const {
     config: actionConfig,
     context: actionContext,
@@ -81,20 +120,9 @@ function SceneElementView({
     title: element.title,
     sendToAI,
   });
-  const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile, focusedId);
-
-  const offsetRef = useRef({ x: 0, y: 0 });
-  const draggingRef = useRef(false);
-  const elementRef = useRef<HTMLDivElement>(null);
-  const [zIndex, setZIndex] = useState(0);
 
   const expanded = SceneManager.getExpandedItem();
   const isExpanded = expanded?.elementId === element.id;
-
-  const isFocused = focusedId === element.id;
-  const hasFocus = focusedId !== null;
-  const isDimmed = hasFocus && !isFocused;
-
   const [expandedTitle, setExpandedTitle] = useState<string | undefined>();
 
   const handleListExpandChange = (exp: boolean, itemTitle?: string) => {
@@ -107,106 +135,136 @@ function SceneElementView({
     }
   };
 
-  // Override grid props when list-expanded
-  let finalGridProps = gridProps;
-  if (isExpanded) {
-    finalGridProps = { ...gridProps, gridColumn: "1 / -1", minHeight: "400px" };
+  const isCenter = elementLayout.role === "center" || elementLayout.role === "cinematic-main";
+  const isOrbital = elementLayout.role === "orbital";
+  const isCinematicOverlay = elementLayout.role === "cinematic-overlay";
+
+  // Parallax offset for orbital elements (subtle mouse tracking)
+  const parallaxX = isOrbital ? (mouseX - 0.5) * 12 : 0;
+  const parallaxY = isOrbital ? (mouseY - 0.5) * 8 : 0;
+
+  // Hover scale boost for orbitals
+  const hoverScale = isOrbital && isHovered ? 0.55 : elementLayout.scale;
+  const hoverOpacity = isOrbital && isHovered ? 0.95 : elementLayout.opacity;
+
+  // For stack/grid modes, use flow layout
+  if (elementLayout.role === "stack") {
+    return (
+      <motion.div
+        layoutId={element.id}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10, transition: { duration: 0.15 } }}
+        transition={{ ...gentleSpring, delay: index * 0.05 }}
+        style={{ maxWidth: "800px", width: "100%", margin: "0 auto" }}
+      >
+        <GlassPanel
+          title={expandedTitle || element.title}
+          priority={element.priority}
+          minimized={isMinimized}
+          focused={false}
+          dimmed={false}
+          variant="default"
+          onDismiss={() => SceneManager.dismissElement(element.id)}
+          onMinimize={() => SceneManager.minimizeElement(element.id)}
+        >
+          <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
+          {hasActions && actionContext && <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />}
+          {actionContext && <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />}
+        </GlassPanel>
+      </motion.div>
+    );
   }
 
-  const handleBringToFront = () => {
-    setZIndex(bringToFront());
-  };
+  if (elementLayout.role === "grid") {
+    return (
+      <motion.div
+        layoutId={element.id}
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+        transition={{ ...gentleSpring, delay: index * 0.04 }}
+        style={{ width: "100%", height: "100%" }}
+      >
+        <GlassPanel
+          title={expandedTitle || element.title}
+          priority={element.priority}
+          minimized={isMinimized}
+          focused={false}
+          dimmed={false}
+          variant="default"
+          onDismiss={() => SceneManager.dismissElement(element.id)}
+          onMinimize={() => SceneManager.minimizeElement(element.id)}
+        >
+          <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
+          {hasActions && actionContext && <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />}
+          {actionContext && <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />}
+        </GlassPanel>
+      </motion.div>
+    );
+  }
 
-  const handleFocus = () => {
-    if (visibleElements.length <= 1) return; // No point focusing single panel
-    SceneManager.focusElement(element.id);
-  };
-
+  // Absolute positioned elements (focus/cinematic modes)
   return (
     <motion.div
-      ref={elementRef}
-      layout // Framer Motion layout animation for smooth reflow
       layoutId={element.id}
       style={{
-        ...finalGridProps,
-        zIndex: isFocused ? 10 : zIndex || undefined,
-        position: "relative",
+        position: "absolute",
+        left: elementLayout.x,
+        top: elementLayout.y,
+        width: elementLayout.width,
+        height: elementLayout.height === "auto" ? "auto" : elementLayout.height,
+        zIndex: isHovered && isOrbital ? elementLayout.zIndex + 5 : elementLayout.zIndex,
+        transform: "translate(-50%, -50%)",
         pointerEvents: "auto",
-        minWidth: 0,
-        minHeight: 0,
+        cursor: isOrbital ? "pointer" : "default",
       }}
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      initial={{
+        opacity: 0,
+        scale: isCenter ? 0.8 : 0.3,
+        ...(isOrbital ? { x: (index % 2 === 0 ? -80 : 80), y: 40 } : {}),
+      }}
       animate={{
-        opacity: 1,
-        y: 0,
-        scale: isDimmed ? 0.97 : 1,
+        opacity: hoverOpacity,
+        scale: hoverScale,
+        x: parallaxX,
+        y: parallaxY,
       }}
-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
-      transition={{
-        duration: 0.35,
-        delay: index * 0.06,
-        ease: [0.4, 0, 0.2, 1],
-        layout: { duration: 0.4, ease: [0.4, 0, 0.2, 1] },
+      exit={{
+        opacity: 0,
+        scale: isCenter ? 0.85 : 0.2,
+        transition: { duration: 0.2 },
       }}
-      onPointerDown={handleBringToFront}
+      transition={isCenter ? springTransition : { ...gentleSpring, delay: index * 0.06 }}
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+      onClick={(e) => {
+        if (isOrbital && !(e.target as HTMLElement).closest("button")) {
+          onPromote(element.id);
+        }
+      }}
     >
-      <GlassPanel
-        title={expandedTitle || element.title}
-        priority={isFocused ? 1 : isExpanded ? 1 : element.priority}
-        minimized={isMinimized}
-        focused={isFocused}
-        dimmed={isDimmed}
-        onFocus={handleFocus}
-        onDismiss={() => SceneManager.dismissElement(element.id)}
-        onMinimize={() => SceneManager.minimizeElement(element.id)}
-        isDragging={draggingRef.current}
-        onDragStart={(e) => {
-          draggingRef.current = true;
-          setZIndex(bringToFront());
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const startOx = offsetRef.current.x;
-          const startOy = offsetRef.current.y;
-
-          const onMove = (ev: PointerEvent) => {
-            offsetRef.current = {
-              x: startOx + (ev.clientX - startX),
-              y: startOy + (ev.clientY - startY),
-            };
-            if (elementRef.current) {
-              elementRef.current.style.left = `${offsetRef.current.x}px`;
-              elementRef.current.style.top = `${offsetRef.current.y}px`;
-            }
-          };
-          const onUp = () => {
-            draggingRef.current = false;
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onUp);
-          };
-          window.addEventListener("pointermove", onMove);
-          window.addEventListener("pointerup", onUp);
-        }}
-      >
-        <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
-        {/* Universal Action Bar */}
-        {hasActions && actionContext && (
-          <ActionBar
-            actions={elementActions}
-            aiActions={elementAIActions}
-            context={actionContext}
-            className="mt-2"
-          />
-        )}
-        {/* AI Response Overlay */}
-        {actionContext && (
-          <AIOverlay
-            content={overlayContent}
-            onClose={clearOverlay}
-            onSendToChat={(content) => { sendToAI?.(content); clearOverlay(); }}
-            onCopy={(content) => { navigator.clipboard?.writeText(content); clearOverlay(); }}
-          />
-        )}
-      </GlassPanel>
+      <div style={{ width: "100%", height: "100%", maxHeight: isCenter ? "calc(100vh - 140px)" : undefined }}>
+        <GlassPanel
+          title={expandedTitle || element.title}
+          priority={isCenter ? 1 : element.priority}
+          minimized={isMinimized}
+          focused={isCenter}
+          dimmed={false}
+          variant={isCenter ? "center" : isOrbital ? "orbital" : isCinematicOverlay ? "cinematic-overlay" : "default"}
+          onFocus={isOrbital ? () => onPromote(element.id) : undefined}
+          onDismiss={() => SceneManager.dismissElement(element.id)}
+          onMinimize={isCenter ? () => SceneManager.minimizeElement(element.id) : undefined}
+        >
+          <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
+          {hasActions && actionContext && isCenter && (
+            <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />
+          )}
+          {actionContext && isCenter && (
+            <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />
+          )}
+        </GlassPanel>
+      </div>
     </motion.div>
   );
 }
@@ -229,9 +287,20 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
 
   const [isMobile, setIsMobile] = useState(false);
   const prevSceneId = useRef(scene.id);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const focusedId = SceneManager.getFocusedId();
+
+  // Mouse tracking for parallax
+  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setMousePos({
+      x: (e.clientX - rect.left) / rect.width,
+      y: (e.clientY - rect.top) / rect.height,
+    });
+  }, []);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -268,16 +337,14 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
     };
   }, [scene.id, scene.intent, scene.layout, scene.elements]);
 
-  // Click outside any panel to unfocus
+  // Click outside / Escape to unfocus
   useEffect(() => {
     if (!focusedId) return;
     const handler = (e: MouseEvent) => {
-      // If click is on the grid background (not on a panel), unfocus
-      if (gridRef.current && e.target === gridRef.current) {
+      if (containerRef.current && e.target === containerRef.current) {
         SceneManager.unfocusElement();
       }
     };
-    // Also Escape to unfocus
     const keyHandler = (e: KeyboardEvent) => {
       if (e.key === "Escape") SceneManager.unfocusElement();
     };
@@ -290,16 +357,39 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
   }, [focusedId]);
 
   const visibleElements = SceneManager.getVisibleElements();
-  const solved = solveLayout(visibleElements, scene.layout, isMobile, focusedId);
-  const maxWidth = getContentMaxWidth(scene.layout);
+  
+  // Solve HUD layout
+  const hudLayout = useMemo(
+    () => solveHUDLayout(visibleElements, scene.layout, isMobile, focusedId),
+    [visibleElements, scene.layout, isMobile, focusedId],
+  );
+
+  // Promote orbital to center
+  const handlePromote = useCallback((id: string) => {
+    SceneManager.focusElement(id);
+  }, []);
 
   if (visibleElements.length === 0) return null;
 
+  const isAbsoluteMode = hudLayout.mode === "absolute";
+  const isGridMode = hudLayout.mode === "grid";
+  const isStackMode = hudLayout.mode === "stack";
+
+  // Grid layout for grid mode
+  const gridCols = isGridMode
+    ? visibleElements.length <= 2 ? visibleElements.length
+      : visibleElements.length <= 4 ? 2
+      : visibleElements.length <= 9 ? 3 : 4
+    : 1;
+
   return (
-    <div className="relative z-30 w-full h-full overflow-y-auto flex flex-col">
+    <div
+      className="relative z-30 w-full h-full overflow-hidden flex flex-col"
+      onMouseMove={isAbsoluteMode ? handleMouseMove : undefined}
+    >
       {/* Header */}
       <motion.div
-        className="relative z-10 flex items-center justify-between px-4 md:px-8 pt-5 pb-3 shrink-0"
+        className="relative z-50 flex items-center justify-between px-4 md:px-8 pt-5 pb-3 shrink-0"
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -325,39 +415,103 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
         )}
       </motion.div>
 
-      {/* Content grid — centered, auto-sizing */}
-      <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 flex items-start justify-center">
-        <motion.div
-          ref={gridRef}
-          className="mx-auto w-full h-full"
-          layout
-          style={{
-            maxWidth,
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : solved.columns,
-            gridTemplateRows: isMobile ? "auto" : solved.rows,
-            gap: isMobile ? "12px" : "16px",
-            maxHeight: isMobile ? "none" : "calc(100vh - 160px)",
-            alignContent: "start",
-          }}
-          transition={{ layout: { duration: 0.4, ease: [0.4, 0, 0.2, 1] } }}
+      {/* Content area */}
+      {isAbsoluteMode ? (
+        /* Absolute/Focus/Cinematic mode — positioned elements */
+        <div
+          ref={containerRef}
+          className="relative flex-1 min-h-0"
+          style={{ overflow: "hidden" }}
         >
           <AnimatePresence mode="popLayout">
-            {visibleElements.map((el, i) => (
-              <SceneElementView
-                key={el.id}
-                element={el}
-                index={i}
-                layout={scene.layout}
-                isMobile={isMobile}
-                focusedId={focusedId}
-                onItemAction={onItemAction}
-                sendToAI={sendToAI}
-              />
-            ))}
+            {visibleElements.map((el, i) => {
+              const elLayout = hudLayout.elements.get(el.id);
+              if (!elLayout) return null;
+              return (
+                <HUDElement
+                  key={el.id}
+                  element={el}
+                  index={i}
+                  elementLayout={elLayout}
+                  isMobile={isMobile}
+                  focusedId={focusedId}
+                  totalElements={visibleElements.length}
+                  onItemAction={onItemAction}
+                  sendToAI={sendToAI}
+                  onPromote={handlePromote}
+                  mouseX={mousePos.x}
+                  mouseY={mousePos.y}
+                />
+              );
+            })}
           </AnimatePresence>
-        </motion.div>
-      </div>
+        </div>
+      ) : isGridMode ? (
+        /* Grid mode — CSS grid */
+        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto">
+          <div
+            ref={containerRef}
+            className="mx-auto w-full"
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : `repeat(${gridCols}, 1fr)`,
+              gap: isMobile ? "12px" : "16px",
+              maxWidth: "100%",
+            }}
+          >
+            <AnimatePresence mode="popLayout">
+              {visibleElements.map((el, i) => {
+                const elLayout = hudLayout.elements.get(el.id);
+                if (!elLayout) return null;
+                return (
+                  <HUDElement
+                    key={el.id}
+                    element={el}
+                    index={i}
+                    elementLayout={elLayout}
+                    isMobile={isMobile}
+                    focusedId={focusedId}
+                    totalElements={visibleElements.length}
+                    onItemAction={onItemAction}
+                    sendToAI={sendToAI}
+                    onPromote={handlePromote}
+                    mouseX={mousePos.x}
+                    mouseY={mousePos.y}
+                  />
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </div>
+      ) : (
+        /* Stack mode — vertical flow */
+        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto">
+          <div ref={containerRef} className="mx-auto w-full flex flex-col gap-4" style={{ maxWidth: "800px" }}>
+            <AnimatePresence mode="popLayout">
+              {visibleElements.map((el, i) => {
+                const elLayout = hudLayout.elements.get(el.id);
+                if (!elLayout) return null;
+                return (
+                  <HUDElement
+                    key={el.id}
+                    element={el}
+                    index={i}
+                    elementLayout={elLayout}
+                    isMobile={isMobile}
+                    focusedId={focusedId}
+                    totalElements={visibleElements.length}
+                    onItemAction={onItemAction}
+                    sendToAI={sendToAI}
+                    onPromote={handlePromote}
+                    mouseX={mousePos.x}
+                    mouseY={mousePos.y}
+                  />
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

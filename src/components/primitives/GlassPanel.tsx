@@ -3,6 +3,8 @@
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import { X, Minus } from "lucide-react";
 
+export type GlassPanelVariant = "default" | "center" | "orbital" | "cinematic-overlay";
+
 interface GlassPanelProps {
   children: ReactNode;
   title?: string;
@@ -17,14 +19,48 @@ interface GlassPanelProps {
   noPadding?: boolean;
   isDragging?: boolean;
   onDragStart?: (e: React.PointerEvent) => void;
+  /** HUD variant — controls glass depth, glow, opacity */
+  variant?: GlassPanelVariant;
 }
+
+// Visual presets per variant
+const variantStyles = {
+  default: {
+    bgAlpha: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.06)",
+    blur: 20,
+    glow: "0 0 12px rgba(0,212,170,0.02)",
+    shadow: "0 4px 16px rgba(0,0,0,0.2)",
+  },
+  center: {
+    bgAlpha: "rgba(10,12,18,0.85)",
+    borderColor: "rgba(0,212,170,0.18)",
+    blur: 24,
+    glow: "0 0 40px rgba(0,212,170,0.1), 0 0 80px rgba(0,212,170,0.04)",
+    shadow: "0 12px 48px rgba(0,0,0,0.5)",
+  },
+  orbital: {
+    bgAlpha: "rgba(255,255,255,0.025)",
+    borderColor: "rgba(255,255,255,0.05)",
+    blur: 28,
+    glow: "0 0 8px rgba(0,212,170,0.015)",
+    shadow: "0 4px 20px rgba(0,0,0,0.25)",
+  },
+  "cinematic-overlay": {
+    bgAlpha: "rgba(10,12,18,0.7)",
+    borderColor: "rgba(255,255,255,0.08)",
+    blur: 32,
+    glow: "0 0 20px rgba(0,212,170,0.05)",
+    shadow: "0 8px 32px rgba(0,0,0,0.4)",
+  },
+};
 
 export default function GlassPanel({
   children, title, className = "", onDismiss, onMinimize, onFocus,
   minimized, focused, dimmed, priority = 2, noPadding,
-  isDragging, onDragStart,
+  isDragging, onDragStart, variant = "default",
 }: GlassPanelProps) {
-  const isHero = priority === 1;
+  const isHero = priority === 1 || variant === "center";
   const [entered, setEntered] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -33,61 +69,65 @@ export default function GlassPanel({
     return () => clearTimeout(t);
   }, []);
 
-  // Compute visual states
-  const glowColor = focused
-    ? "0 0 30px rgba(0,212,170,0.12), 0 0 60px rgba(0,212,170,0.06)"
-    : isHero
-    ? "0 0 20px rgba(0,212,170,0.04)"
-    : "0 0 12px rgba(0,212,170,0.02)";
+  const vStyle = variantStyles[variant] || variantStyles.default;
 
-  const borderColor = focused
-    ? "rgba(0,212,170,0.2)"
-    : "rgba(255,255,255,0.06)";
+  // Override with focus state if explicitly focused
+  const borderFinal = focused
+    ? "rgba(0,212,170,0.22)"
+    : vStyle.borderColor;
 
-  const bgAlpha = focused
-    ? "rgba(255,255,255,0.07)"
-    : isHero
-    ? "rgba(255,255,255,0.05)"
-    : "rgba(255,255,255,0.03)";
+  const glowFinal = focused
+    ? "0 0 30px rgba(0,212,170,0.14), 0 0 60px rgba(0,212,170,0.06)"
+    : vStyle.glow;
+
+  const bgFinal = focused
+    ? "rgba(10,12,18,0.88)"
+    : vStyle.bgAlpha;
 
   return (
     <div
       className={`group relative rounded-2xl overflow-hidden pointer-events-auto holo-panel holo-scanlines holo-glow ${!entered ? "holo-enter" : ""} ${className}`}
       style={{
-        background: bgAlpha,
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        border: `1px solid ${borderColor}`,
-        boxShadow: `0 ${isHero ? 8 : 4}px ${isHero ? 32 : 16}px rgba(0,0,0,${focused ? 0.4 : isHero ? 0.3 : 0.2}), inset 0 1px 0 rgba(255,255,255,0.06), ${glowColor}`,
+        background: bgFinal,
+        backdropFilter: `blur(${vStyle.blur}px)`,
+        WebkitBackdropFilter: `blur(${vStyle.blur}px)`,
+        border: `1px solid ${borderFinal}`,
+        boxShadow: `${vStyle.shadow}, inset 0 1px 0 rgba(255,255,255,${variant === "center" ? 0.08 : 0.04}), ${glowFinal}`,
         transform: isDragging ? "scale(1.02)" : undefined,
         opacity: dimmed ? 0.5 : 1,
         filter: dimmed ? "brightness(0.7)" : undefined,
         transition: "box-shadow 0.4s ease, transform 0.2s, border-color 0.4s ease, opacity 0.3s ease, filter 0.3s ease, background 0.4s ease",
-        // Content-aware: let the panel size itself, constrained by grid
         minWidth: 0,
         minHeight: minimized ? undefined : "auto",
         display: "flex",
         flexDirection: "column" as const,
+        height: "100%",
       }}
       onClick={(e) => {
-        // Don't trigger focus on button clicks
         if ((e.target as HTMLElement).closest("button")) return;
         onFocus?.();
       }}
     >
-      {/* Title bar — drag handle */}
+      {/* Title bar */}
       {(title || onDismiss || onMinimize) && (
         <div
           className={`flex items-center justify-between border-b border-white/[0.04] select-none shrink-0 ${isHero ? "px-6 py-3" : "px-4 py-2.5"}`}
-          style={{ cursor: isDragging ? "grabbing" : "grab" }}
+          style={{ cursor: isDragging ? "grabbing" : onDragStart ? "grab" : "default" }}
           onPointerDown={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
+            if (!onDragStart) return;
             e.preventDefault();
-            onDragStart?.(e);
+            onDragStart(e);
           }}
         >
           {title && (
-            <span className="text-[10px] text-white/40 uppercase tracking-[0.15em] font-medium truncate max-w-[70%]">
+            <span
+              className="uppercase tracking-[0.15em] font-medium truncate max-w-[70%]"
+              style={{
+                fontSize: isHero ? "11px" : "10px",
+                color: variant === "center" ? "rgba(0,212,170,0.6)" : "rgba(255,255,255,0.4)",
+              }}
+            >
               {title}
             </span>
           )}
@@ -114,14 +154,12 @@ export default function GlassPanel({
         </div>
       )}
 
-      {/* Content — scrollable when overflowing, auto-height up to constraint */}
+      {/* Content — scrollable */}
       {!minimized && (
         <div
           ref={contentRef}
           className={`${noPadding ? "" : isHero ? "p-6" : "p-4"} overflow-y-auto overflow-x-hidden flex-1 min-h-0`}
           style={{
-            // Smart scroll: content grows naturally but scrolls when it exceeds available space
-            // The max-height is determined by the grid cell, not a hardcoded px value
             scrollbarWidth: "thin",
             scrollbarColor: "rgba(255,255,255,0.1) transparent",
           }}
