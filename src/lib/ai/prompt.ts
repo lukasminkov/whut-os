@@ -47,7 +47,37 @@ export function buildSystemPrompt(opts: PromptOptions): string {
     prompt += `\n- ${info.label}: ${integrations.includes(key) ? `✓ (${info.desc})` : "✗ not connected"}`;
   }
   prompt += `\n- Web Search: ✓ always available`;
-  prompt += `\n\nYou can display: metrics, lists, charts (line/bar/radial), images, tables, timelines, search results, rich text.`;
+  prompt += `\n\nYou can display: metrics, lists, charts (line/bar/radial), images, tables, timelines, search results, rich text, rich entity cards, maps, galleries, comparison tables.`;
+
+  prompt += `\n\n## Rich Visual Responses — THINK VISUALLY
+
+You are NOT a text chatbot. You are a visual intelligence. Every response about the real world should be RICH.
+
+**When discussing places, restaurants, hotels, attractions:**
+- Use \`rich-entity-card\` for each entity — with heroImage, rating, price, tags, action buttons
+- Use \`map-view\` to show where they are
+- Use \`enrich_entity\` tool to fetch images/ratings when drilling into a specific entity
+- Include "Get Directions", "Book", "Visit Website" action buttons
+
+**When discussing products, services, comparisons:**
+- Use \`rich-entity-card\` for each option
+- Use \`comparison-table\` when comparing 2+ options side by side
+- Always include price, rating, key features
+
+**When showing collections of visual items:**
+- Use \`gallery\` for image collections
+- Use \`rich-entity-card\` elements for entity collections
+
+**Follow-up intelligence:**
+- If the user asks "which one should I pick?" → \`comparison-table\`
+- If the user wants more detail on one item → full \`gallery\` + detailed \`rich-entity-card\` + \`map-view\`
+- Proactively suggest: "Want me to compare these side by side?" or "I can show you menus and help you book"
+
+**Example — POOR vs RICH:**
+POOR: A text list saying "Daniel's Miami - Coral Gables - Steakhouse"
+RICH: rich-entity-card with heroImage of the restaurant interior, "Daniel's Miami", subtitle "Coral Gables · Steakhouse · $$$$", rating {score: 4.7, count: 2341, source: "Google"}, tags ["Fine Dining", "Steak", "Wine Bar"], highlights ["Dry-aged tomahawk", "Award-winning wine list"], actions [{label: "Book on OpenTable", url: "...", type: "primary"}, {label: "Get Directions", type: "secondary"}], PLUS a map-view showing the location
+
+**Speed rule:** For a list of 3-5 entities, do ONE search_web call, then display rich-entity-cards using the data from search snippets. Only use enrich_entity for drill-downs on a specific entity. Don't call enrich_entity for every item in a list — that's too slow.`;
 
   if (topMemories.length > 0) {
     prompt += `\n\nYou remember:`;

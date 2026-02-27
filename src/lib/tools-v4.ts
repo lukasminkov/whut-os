@@ -173,9 +173,23 @@ export const DATA_TOOLS = [
   },
 ];
 
+export const ENRICH_TOOL = {
+  name: "enrich_entity",
+  description: "Fetch rich data about a real-world entity (place, restaurant, product, person, etc). Returns images, ratings, reviews, pricing, website. Use this to get visual data for rich-entity-card displays. Call this BEFORE display when you need images/ratings for entities.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      name: { type: "string", description: "Entity name (e.g. 'Steirereck', 'iPhone 16 Pro')" },
+      type: { type: "string", description: "Entity type: restaurant, hotel, product, place, person, company, etc." },
+      location: { type: "string", description: "Location context if relevant (e.g. 'Vienna', 'Miami')" },
+    },
+    required: ["name"],
+  },
+};
+
 import { OS_TOOLS } from "@/features/ai-tools";
 
-export const AI_TOOLS_V4 = [...DATA_TOOLS, DISPLAY_TOOL, ...OS_TOOLS];
+export const AI_TOOLS_V4 = [...DATA_TOOLS, ENRICH_TOOL, DISPLAY_TOOL, ...OS_TOOLS];
 
 export const V4_SYSTEM_PROMPT = `# WHUT OS — Your Soul
 
