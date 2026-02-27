@@ -59,6 +59,7 @@ export default function DashboardPage() {
   const [speechActive, setSpeechActive] = useState(false);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sendingRef = useRef(false);
   const { openWindow } = useWindowManager();
 
   // Report active view
@@ -206,6 +207,9 @@ export default function DashboardPage() {
   // Core AI call
   const sendToAI = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
+    // Prevent double-submission (Enter held, double-click, etc.)
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     // Check scene cache for repeat requests or exact matches
     const repeat = isRepeatRequest(trimmed);
@@ -406,6 +410,8 @@ export default function DashboardPage() {
       setThinking(false);
       setStatusText(null);
       if (speechLoopRef.current) voice.startListening();
+    } finally {
+      sendingRef.current = false;
     }
   }, [conversationId, userProfile, tts, pendingImages]);
 
