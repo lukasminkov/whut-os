@@ -7,6 +7,7 @@ import type { Scene, SceneElement } from "@/lib/scene-v4-types";
 import { solveLayout, getElementGridProps, getContentMaxWidth } from "@/lib/layout-solver-v4";
 import * as SceneManager from "@/lib/scene-manager";
 import { screenContextStore } from "@/lib/screen-context";
+import { ActionBar, AIOverlay, useElementActions } from "./ActionBar";
 import {
   GlassPanel,
   MetricPrimitive,
@@ -63,6 +64,23 @@ function SceneElementView({
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
   const visibleElements = SceneManager.getVisibleElements();
+
+  // Universal action system
+  const {
+    config: actionConfig,
+    context: actionContext,
+    actions: elementActions,
+    aiActions: elementAIActions,
+    overlayContent,
+    clearOverlay,
+    hasActions,
+  } = useElementActions({
+    elementId: element.id,
+    elementType: element.type,
+    data: element.data,
+    title: element.title,
+    sendToAI,
+  });
   const gridProps = getElementGridProps(element, index, visibleElements.length, layout, isMobile, focusedId);
 
   const offsetRef = useRef({ x: 0, y: 0 });
@@ -170,6 +188,24 @@ function SceneElementView({
         }}
       >
         <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
+        {/* Universal Action Bar */}
+        {hasActions && actionContext && (
+          <ActionBar
+            actions={elementActions}
+            aiActions={elementAIActions}
+            context={actionContext}
+            className="mt-2"
+          />
+        )}
+        {/* AI Response Overlay */}
+        {actionContext && (
+          <AIOverlay
+            content={overlayContent}
+            onClose={clearOverlay}
+            onSendToChat={(content) => { sendToAI?.(content); clearOverlay(); }}
+            onCopy={(content) => { navigator.clipboard?.writeText(content); clearOverlay(); }}
+          />
+        )}
       </GlassPanel>
     </motion.div>
   );
