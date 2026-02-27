@@ -10,6 +10,16 @@
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
+    "@tiptap/extension-code-block-lowlight": "^3.20.0",
+    "@tiptap/extension-highlight": "^3.20.0",
+    "@tiptap/extension-image": "^3.20.0",
+    "@tiptap/extension-link": "^3.20.0",
+    "@tiptap/extension-placeholder": "^3.20.0",
+    "@tiptap/extension-task-item": "^3.20.0",
+    "@tiptap/extension-task-list": "^3.20.0",
+    "@tiptap/pm": "^3.20.0",
+    "@tiptap/react": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
     "@tsparticles/react": "^3.0.0",
     "@tsparticles/slim": "^3.9.1",
     "@types/three": "^0.182.0",
@@ -17,6 +27,7 @@
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
     "framer-motion": "^12.34.0",
+    "lowlight": "^3.3.0",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "postgres": "^3.4.8",
@@ -25,7 +36,8 @@
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.14",
     "recharts": "^3.7.0",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
