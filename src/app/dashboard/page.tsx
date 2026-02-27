@@ -16,6 +16,10 @@ import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
 import { cacheScene, getCachedScene, isRepeatRequest, getLastScene } from "@/lib/scene-cache";
 import ThinkingOverlay from "@/components/ThinkingOverlay";
 import { useWindowManager } from "@/features/window-manager";
+import Workspace from "@/features/window-manager/Workspace";
+import type { WindowType } from "@/features/window-manager";
+import FileBrowser from "@/features/file-system/FileBrowser";
+import { EmbeddedBrowser } from "@/features/browser";
 
 const SUGGESTIONS = [
   "What's my day look like?",
@@ -54,6 +58,7 @@ export default function DashboardPage() {
   const [speechActive, setSpeechActive] = useState(false);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { openWindow } = useWindowManager();
 
   // User profile
   const [userProfile, setUserProfile] = useState<{
@@ -304,6 +309,24 @@ export default function DashboardPage() {
               setStatusText(null);
             } else if (event.type === "done") {
               spokenText = event.text || "";
+            } else if (event.type === "os_command") {
+              const cmd = event.command;
+              if (cmd.os_command === "window_manager") {
+                if (cmd.action === "open" && cmd.window_type) {
+                  openWindow(cmd.window_type, cmd.title ? { title: cmd.title } : undefined);
+                } else if (cmd.action === "tile") {
+                  // Tile is dispatched via context
+                }
+              } else if (cmd.os_command === "browser_navigate") {
+                const url = cmd.action === "search"
+                  ? `https://www.google.com/search?igu=1&q=${encodeURIComponent(cmd.query || "")}`
+                  : cmd.url || "https://www.google.com";
+                openWindow("browser", { title: "Browser", initialUrl: url });
+              } else if (cmd.os_command === "file_manager") {
+                if (cmd.action === "list" || cmd.action === "search") {
+                  openWindow("files", { title: "Files" });
+                }
+              }
             } else if (event.type === "error") {
               console.error("AI error:", event.error);
             }
@@ -468,9 +491,35 @@ export default function DashboardPage() {
 
   const showQuietState = !currentScene && !thinking;
 
+  const renderWindow = useCallback((type: WindowType, props?: Record<string, unknown>) => {
+    switch (type) {
+      case "files":
+        return <FileBrowser />;
+      case "browser":
+        return <EmbeddedBrowser initialUrl={props?.initialUrl as string | undefined} />;
+      case "chat":
+        return (
+          <div className="h-full p-4">
+            <ChatRecap messages={chatMessages} visible={true} onToggle={() => {}} />
+          </div>
+        );
+      case "scene":
+        return currentScene ? (
+          <SceneRendererV4 scene={currentScene} onItemAction={handleItemAction} />
+        ) : (
+          <div className="h-full flex items-center justify-center text-white/20 text-sm">No active scene</div>
+        );
+      default:
+        return <div className="h-full flex items-center justify-center text-white/20 text-sm">Coming soon</div>;
+    }
+  }, [chatMessages, currentScene, handleItemAction]);
+
   return (
     <div className="h-full w-full overflow-hidden relative">
       <AIOrb state={orbState} audioLevel={tts.isSpeaking ? 0.5 : voice.state === "listening" ? 0.3 : 0} />
+
+      {/* Floating windows */}
+      <Workspace renderWindow={renderWindow} />
 
       {/* Status indicator */}
       <AnimatePresence>

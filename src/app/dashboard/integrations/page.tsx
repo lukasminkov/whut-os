@@ -6,288 +6,418 @@ import {
   ExternalLink,
   ArrowRight,
   LogOut,
+  Check,
+  AlertTriangle,
+  Loader2,
+  RefreshCw,
+  Key,
+  X,
+  Search,
 } from "lucide-react";
 
-type IntegrationStatus = "connected" | "available";
+type IntegrationStatus = "connected" | "disconnected" | "needs_reauth" | "error" | "loading";
 
-interface Integration {
+interface IntegrationDef {
+  id: string;
   name: string;
-  key: string; // localStorage key prefix
   description: string;
-  category: "commerce" | "communication" | "productivity";
-  defaultStatus: IntegrationStatus;
+  category: "communication" | "productivity" | "commerce";
   logo: React.ReactNode;
-  authUrl?: string; // OAuth start URL
+  authType: "oauth2" | "bot_token" | "api_key";
+  authUrl?: string;
+  tools: string[];
 }
 
-/* ---------- Brand logos as clean SVGs ---------- */
+/* ---------- Brand logos ---------- */
 
-const TikTokLogo = () => (
+const GoogleLogo = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+  </svg>
+);
+
+const NotionLogo = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-    <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.3 0 .59.04.86.12V9.01a6.27 6.27 0 00-.86-.06 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.34-6.34V8.75a8.18 8.18 0 004.76 1.52V6.84a4.84 4.84 0 01-1-.15z" className="text-white/80"/>
+    <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L18.44 2.35c-.42-.326-.98-.7-2.055-.606l-12.8.933c-.466.047-.56.28-.373.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.84-.046.933-.56.933-1.166V6.354c0-.606-.233-.933-.746-.886l-15.177.84c-.56.047-.747.327-.747.98zm14.337.745c.093.42 0 .84-.42.886l-.7.14v10.264c-.607.327-1.167.514-1.634.514-.746 0-.933-.234-1.493-.934l-4.577-7.186v6.952l1.447.327s0 .84-1.167.84l-3.22.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.46 9.667c-.093-.42.14-1.026.793-1.073l3.453-.233 4.764 7.279v-6.44l-1.213-.14c-.094-.513.28-.886.746-.933zM1.613 1.28L14.88.252c1.634-.14 2.054-.047 3.08.7l4.25 2.986c.7.513.933.653.933 1.213v16.378c0 1.026-.373 1.633-1.68 1.726l-15.458.933c-.98.047-1.447-.093-1.96-.746L1.145 19.5c-.56-.747-.793-1.307-.793-1.96V2.493c0-.84.373-1.54 1.26-1.213z" className="text-white/80"/>
   </svg>
 );
 
-const EmailLogo = () => (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-white/60" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="4" width="20" height="16" rx="2"/>
-    <path d="M22 7l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/>
-  </svg>
-);
-
-const GoogleDriveLogo = () => (
+const SlackLogo = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6">
-    <path d="M4.433 22l-1.6-2.77L8.867 8.46h4.8L7.633 19.23z" fill="#0066DA"/>
-    <path d="M19.567 22H10.4l2.4-4.154h9.6z" fill="#00AC47"/>
-    <path d="M22.4 17.846L16.367 7.077h-4.8L17.6 17.846z" fill="#EA4335"/>
-    <path d="M8.867 8.46L6.467 3.538h4.8L16.367 7.077z" fill="#00832D"/>
-    <path d="M16.367 7.077l-4.8 8.385L8.867 8.46z" fill="#2684FC"/>
-    <path d="M12.8 17.846l-2.4-4.154L16.367 7.077h-4.8z" fill="#FFBA00"/>
+    <path d="M5.042 15.165a2.528 2.528 0 01-2.52 2.523A2.528 2.528 0 010 15.165a2.527 2.527 0 012.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 012.521-2.52 2.527 2.527 0 012.521 2.52v6.313A2.528 2.528 0 018.834 24a2.528 2.528 0 01-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 01-2.521-2.52A2.528 2.528 0 018.834 0a2.528 2.528 0 012.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 012.521 2.521 2.528 2.528 0 01-2.521 2.521H2.522A2.528 2.528 0 010 8.834a2.528 2.528 0 012.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 012.522-2.521A2.528 2.528 0 0124 8.834a2.528 2.528 0 01-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 01-2.523 2.521 2.527 2.527 0 01-2.52-2.521V2.522A2.527 2.527 0 0115.165 0a2.528 2.528 0 012.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 012.523 2.522A2.528 2.528 0 0115.165 24a2.527 2.527 0 01-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 01-2.52-2.523 2.526 2.526 0 012.52-2.52h6.313A2.527 2.527 0 0124 15.165a2.528 2.528 0 01-2.522 2.523h-6.313z" fill="#E01E5A"/>
   </svg>
 );
 
-const GoogleCalendarLogo = () => (
-  <svg viewBox="0 0 24 24" className="h-6 w-6">
-    <rect x="3" y="4" width="18" height="18" rx="2" fill="#4285F4" opacity="0.9"/>
-    <rect x="3" y="4" width="18" height="5" rx="2" fill="#1967D2"/>
-    <rect x="7" y="11" width="3" height="3" rx="0.5" fill="white"/>
-    <rect x="12" y="11" width="3" height="3" rx="0.5" fill="white"/>
-    <rect x="7" y="16" width="3" height="3" rx="0.5" fill="white"/>
-    <rect x="12" y="16" width="3" height="3" rx="0.5" fill="white" opacity="0.6"/>
-    <rect x="8" y="2" width="2" height="4" rx="1" fill="#1967D2"/>
-    <rect x="14" y="2" width="2" height="4" rx="1" fill="#1967D2"/>
+const TelegramLogo = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+    <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0h-.056zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" className="text-[#26A5E4]"/>
   </svg>
 );
 
-const INTEGRATIONS: Integration[] = [
+const INTEGRATIONS: IntegrationDef[] = [
   {
-    name: "Email (Gmail)",
-    key: "google",
-    description: "Read and send emails via Gmail",
+    id: "google",
+    name: "Google Workspace",
+    description: "Gmail, Calendar, and Drive — read emails, manage events, access files",
+    category: "productivity",
+    logo: <GoogleLogo />,
+    authType: "oauth2",
+    authUrl: "/api/auth/google",
+    tools: ["fetch_emails", "send_email", "fetch_calendar", "create_calendar_event", "fetch_drive_files", "create_drive_document"],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Search pages, query databases, create and update content",
+    category: "productivity",
+    logo: <NotionLogo />,
+    authType: "oauth2",
+    authUrl: "/api/auth/notion",
+    tools: ["notion_search", "notion_get_page", "notion_create_page", "notion_query_database"],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    description: "Read channels, send messages, search conversations",
     category: "communication",
-    defaultStatus: "available",
-    logo: <EmailLogo />,
-    authUrl: "/api/auth/google",
+    logo: <SlackLogo />,
+    authType: "oauth2",
+    authUrl: "/api/auth/slack",
+    tools: ["slack_list_channels", "slack_read_messages", "slack_send_message", "slack_search_messages"],
   },
   {
-    name: "Google Calendar",
-    key: "google",
-    description: "Upcoming events and schedule",
-    category: "productivity",
-    defaultStatus: "available",
-    logo: <GoogleCalendarLogo />,
-    authUrl: "/api/auth/google",
-  },
-  {
-    name: "Google Drive",
-    key: "google",
-    description: "Sync documents and spreadsheets",
-    category: "productivity",
-    defaultStatus: "available",
-    logo: <GoogleDriveLogo />,
-    authUrl: "/api/auth/google",
-  },
-  {
-    name: "TikTok Shop",
-    key: "tiktok",
-    description: "Track creator sales and commissions",
-    category: "commerce",
-    defaultStatus: "available",
-    logo: <TikTokLogo />,
-    authUrl: "/api/auth/tiktok",
+    id: "telegram",
+    name: "Telegram",
+    description: "Send messages and documents via Telegram bot",
+    category: "communication",
+    logo: <TelegramLogo />,
+    authType: "bot_token",
+    tools: ["telegram_send_message", "telegram_get_updates", "telegram_send_document"],
   },
 ];
 
-const STATUS_CONFIG: Record<IntegrationStatus, { label: string; className: string; dot: string }> = {
-  connected: {
-    label: "Connected",
-    className: "text-emerald-400",
-    dot: "bg-emerald-400",
-  },
-  available: {
-    label: "Available",
-    className: "text-white/40",
-    dot: "bg-white/20",
-  },
-  // Future statuses can be added here
-};
-
 const CATEGORIES = [
   { key: "all", label: "All" },
-  { key: "commerce", label: "Commerce" },
-  { key: "communication", label: "Communication" },
   { key: "productivity", label: "Productivity" },
-] as const;
-
-// Keys that indicate a real OAuth connection
-const TOKEN_KEYS: Record<string, string> = {
-  tiktok: "tiktok_access_token",
-  google: "whut_google_tokens",
-};
-
-function getConnectionStatus(integration: Integration): IntegrationStatus {
-  if (typeof window === "undefined") return integration.defaultStatus;
-  const tokenKey = TOKEN_KEYS[integration.key];
-  if (tokenKey && localStorage.getItem(tokenKey)) {
-    return "connected";
-  }
-  return integration.defaultStatus;
-}
+  { key: "communication", label: "Communication" },
+  { key: "commerce", label: "Commerce" },
+];
 
 export default function IntegrationsPage() {
-  const [filter, setFilter] = useState<string>("all");
-  const [statuses, setStatuses] = useState<Record<string, IntegrationStatus>>({});
   const searchParams = useSearchParams();
+  const [statuses, setStatuses] = useState<Record<string, IntegrationStatus>>({});
+  const [category, setCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [tokenModal, setTokenModal] = useState<string | null>(null);
+  const [tokenInput, setTokenInput] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  // Process OAuth callback tokens from URL params
-  const processCallbackTokens = useCallback(() => {
-    if (typeof window === "undefined") return;
-
-    // TikTok callback
-    if (searchParams.get("tiktok_connected") === "true") {
-      const token = searchParams.get("tiktok_access_token");
-      const refresh = searchParams.get("tiktok_refresh_token");
-      const expires = searchParams.get("tiktok_expires_at");
-      if (token) {
-        localStorage.setItem("tiktok_access_token", token);
-        if (refresh) localStorage.setItem("tiktok_refresh_token", refresh);
-        if (expires) localStorage.setItem("tiktok_expires_at", expires);
+  // Check for OAuth callbacks
+  useEffect(() => {
+    const handleCallback = async () => {
+      // Notion callback
+      if (searchParams.get("notion_connected") === "true") {
+        const token = searchParams.get("notion_access_token");
+        if (token) {
+          await saveToken("notion", token, {
+            workspace_name: searchParams.get("notion_workspace_name") || "",
+            workspace_id: searchParams.get("notion_workspace_id") || "",
+          });
+        }
       }
-    }
-
-    // Clean URL after processing
-    if (searchParams.get("tiktok_connected")) {
-      window.history.replaceState({}, "", "/dashboard/integrations");
-    }
+      // Slack callback
+      if (searchParams.get("slack_connected") === "true") {
+        const token = searchParams.get("slack_access_token");
+        if (token) {
+          await saveToken("slack", token, {
+            team_name: searchParams.get("slack_team_name") || "",
+            team_id: searchParams.get("slack_team_id") || "",
+          });
+        }
+      }
+    };
+    handleCallback();
   }, [searchParams]);
 
-  // Process Google OAuth tokens from URL hash (tokens already saved to DB by callback)
+  // Fetch statuses on mount
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    if (hash.includes("google_tokens=")) {
-      window.history.replaceState({}, "", "/dashboard/integrations");
-    }
+    fetchStatuses();
   }, []);
 
-  useEffect(() => {
-    processCallbackTokens();
-    // Build status map
-    const map: Record<string, IntegrationStatus> = {};
-    for (const i of INTEGRATIONS) {
-      map[i.key] = getConnectionStatus(i);
+  const fetchStatuses = async () => {
+    try {
+      const res = await fetch("/api/integrations/tokens");
+      const data = await res.json();
+      const newStatuses: Record<string, IntegrationStatus> = {};
+      for (const integration of INTEGRATIONS) {
+        const token = (data.integrations || []).find(
+          (t: { provider: string }) => t.provider === integration.id
+        );
+        newStatuses[integration.id] = token ? "connected" : "disconnected";
+      }
+      setStatuses(newStatuses);
+    } catch {
+      // Default all to disconnected
+      const s: Record<string, IntegrationStatus> = {};
+      INTEGRATIONS.forEach((i) => (s[i.id] = "disconnected"));
+      setStatuses(s);
     }
-    setStatuses(map);
-  }, [processCallbackTokens]);
+  };
 
-  const handleConnect = (integration: Integration) => {
-    if (integration.authUrl) {
+  const saveToken = async (provider: string, accessToken: string, metadata?: Record<string, unknown>) => {
+    await fetch("/api/integrations/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider,
+        access_token: accessToken,
+        metadata,
+      }),
+    });
+    setStatuses((prev) => ({ ...prev, [provider]: "connected" }));
+  };
+
+  const disconnect = async (provider: string) => {
+    await fetch("/api/integrations/tokens", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider }),
+    });
+    setStatuses((prev) => ({ ...prev, [provider]: "disconnected" }));
+  };
+
+  const handleConnect = (integration: IntegrationDef) => {
+    if (integration.authType === "bot_token" || integration.authType === "api_key") {
+      setTokenModal(integration.id);
+      setTokenInput("");
+    } else if (integration.authUrl) {
       window.location.href = integration.authUrl;
     }
   };
 
-  const handleDisconnect = (integration: Integration) => {
-    const tokenKey = TOKEN_KEYS[integration.key];
-    if (!tokenKey) return;
+  const handleTokenSubmit = async () => {
+    if (!tokenModal || !tokenInput.trim()) return;
+    setSaving(true);
 
-    // Clear all stored data for this integration
-    const prefix = integration.key;
-    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith(`${prefix}_`));
-    keysToRemove.forEach(k => localStorage.removeItem(k));
+    // Validate Telegram bot token
+    if (tokenModal === "telegram") {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${tokenInput}/getMe`);
+        const data = await res.json();
+        if (!data.ok) {
+          alert("Invalid bot token");
+          setSaving(false);
+          return;
+        }
+        await saveToken("telegram", tokenInput, { bot_username: data.result?.username });
+      } catch {
+        alert("Failed to validate token");
+        setSaving(false);
+        return;
+      }
+    } else {
+      await saveToken(tokenModal, tokenInput);
+    }
 
-    setStatuses(prev => ({ ...prev, [integration.key]: integration.defaultStatus }));
+    setTokenModal(null);
+    setTokenInput("");
+    setSaving(false);
   };
 
-  const getStatus = (integration: Integration): IntegrationStatus => {
-    return statuses[integration.key] || integration.defaultStatus;
-  };
-
-  const filtered = INTEGRATIONS;
-
-  const connectedCount = INTEGRATIONS.filter((i) => getStatus(i) === "connected").length;
+  const filtered = INTEGRATIONS.filter((i) => {
+    if (category !== "all" && i.category !== category) return false;
+    if (search && !i.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <div className="min-h-screen px-8 py-10 text-white max-w-4xl">
-      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-lg font-semibold text-white tracking-tight">Integrations</h1>
+        <h1 className="text-lg font-semibold text-white tracking-tight">
+          Integrations
+        </h1>
         <p className="mt-1 text-sm text-white/40">
-          {connectedCount} of {INTEGRATIONS.length} connected
+          Connect your tools — AI gets superpowers for each one
         </p>
       </div>
 
-      {/* Category filters removed — only 4 integrations */}
-
-      {/* Error display */}
-      {searchParams.get("error") && (
-        <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          Connection failed: {searchParams.get("error")}
-          {searchParams.get("msg") && ` — ${searchParams.get("msg")}`}
+      {/* Filters */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/20" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search integrations..."
+            className="w-full pl-9 pr-3 py-2 text-sm bg-white/[0.04] border border-white/[0.06] rounded-lg text-white placeholder:text-white/20 focus:outline-none focus:border-[#00d4aa]/30"
+          />
         </div>
-      )}
+        <div className="flex gap-1">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setCategory(c.key)}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                category === c.key
+                  ? "border-[#00d4aa]/30 text-[#00d4aa] bg-[#00d4aa]/10"
+                  : "border-white/[0.06] text-white/40 hover:text-white/60"
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* Grid */}
-      <div className="grid gap-3 sm:grid-cols-2">
+      {/* Integration Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map((integration) => {
-          const currentStatus = getStatus(integration);
-          const status = STATUS_CONFIG[currentStatus];
-          const isOAuthConnected = TOKEN_KEYS[integration.key] && currentStatus === "connected";
+          const status = statuses[integration.id] || "loading";
+          const isConnected = status === "connected";
 
           return (
             <div
-              key={integration.name}
-              className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:bg-white/[0.04] hover:border-white/[0.1]"
+              key={integration.id}
+              className={`relative border rounded-xl p-5 transition-all duration-200 hover:bg-white/[0.03] ${
+                isConnected
+                  ? "border-[#00d4aa]/20 bg-[#00d4aa]/[0.02]"
+                  : "border-white/[0.06] bg-white/[0.02]"
+              }`}
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.05]">
-                    {integration.logo}
+              {/* Status badge */}
+              <div className="absolute top-4 right-4">
+                {status === "loading" ? (
+                  <Loader2 className="h-3.5 w-3.5 text-white/20 animate-spin" />
+                ) : isConnected ? (
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-[#00d4aa]" />
+                    <span className="text-[10px] text-[#00d4aa]">Connected</span>
                   </div>
-                  <div>
-                    <div className="text-sm font-medium text-white">{integration.name}</div>
-                    <div className="text-xs text-white/35 mt-0.5">{integration.description}</div>
+                ) : status === "needs_reauth" ? (
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="h-3 w-3 text-amber-400" />
+                    <span className="text-[10px] text-amber-400">Needs reauth</span>
                   </div>
-                </div>
+                ) : null}
               </div>
 
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <div className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-                  <span className={`text-xs ${status.className}`}>{status.label}</span>
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                  {integration.logo}
                 </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-medium text-white">{integration.name}</h3>
+                  <p className="text-xs text-white/35 mt-1">{integration.description}</p>
 
-                {currentStatus === "connected" && isOAuthConnected ? (
-                  <button
-                    onClick={() => handleDisconnect(integration)}
-                    className="flex items-center gap-1 text-xs text-red-400/60 hover:text-red-400 transition-colors"
-                  >
-                    Disconnect
-                    <LogOut className="h-3 w-3" />
-                  </button>
-                ) : currentStatus === "connected" ? (
-                  <button className="flex items-center gap-1 text-xs text-white/30 hover:text-white/60 transition-colors">
-                    Configure
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                ) : currentStatus === "available" && integration.authUrl ? (
-                  <button
-                    onClick={() => handleConnect(integration)}
-                    className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2.5 py-1 text-xs text-white/60 hover:bg-white/[0.1] hover:text-white transition-all"
-                  >
-                    Connect
-                    <ArrowRight className="h-3 w-3" />
-                  </button>
-                ) : currentStatus === "available" ? (
-                  <button className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2.5 py-1 text-xs text-white/60 hover:bg-white/[0.1] hover:text-white transition-all">
-                    Connect
-                    <ArrowRight className="h-3 w-3" />
-                  </button>
-                ) : null}
+                  {/* AI Tools */}
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {integration.tools.slice(0, 4).map((tool) => (
+                      <span
+                        key={tool}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.04] text-white/30 font-mono"
+                      >
+                        {tool}
+                      </span>
+                    ))}
+                    {integration.tools.length > 4 && (
+                      <span className="text-[10px] text-white/20">
+                        +{integration.tools.length - 4} more
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Action */}
+                  <div className="mt-4">
+                    {isConnected ? (
+                      <button
+                        onClick={() => disconnect(integration.id)}
+                        className="flex items-center gap-1.5 text-xs text-white/30 hover:text-red-400 transition-colors"
+                      >
+                        <LogOut className="h-3 w-3" />
+                        Disconnect
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleConnect(integration)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#00d4aa] bg-[#00d4aa]/10 border border-[#00d4aa]/20 rounded-lg hover:bg-[#00d4aa]/20 transition-colors"
+                      >
+                        {integration.authType === "bot_token" ? (
+                          <Key className="h-3 w-3" />
+                        ) : (
+                          <ExternalLink className="h-3 w-3" />
+                        )}
+                        Connect
+                        {integration.authType === "oauth2" && <ArrowRight className="h-3 w-3" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Token Input Modal */}
+      {tokenModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#0a0a0a] border border-white/[0.08] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-white">
+                Enter {tokenModal === "telegram" ? "Bot Token" : "API Key"}
+              </h3>
+              <button
+                onClick={() => setTokenModal(null)}
+                className="text-white/30 hover:text-white/60"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {tokenModal === "telegram" && (
+              <p className="text-xs text-white/35 mb-4">
+                Get your bot token from{" "}
+                <a
+                  href="https://t.me/BotFather"
+                  target="_blank"
+                  rel="noopener"
+                  className="text-[#00d4aa] hover:underline"
+                >
+                  @BotFather
+                </a>{" "}
+                on Telegram
+              </p>
+            )}
+            <input
+              type="password"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder={tokenModal === "telegram" ? "123456:ABC-DEF..." : "Enter API key..."}
+              className="w-full px-4 py-2.5 text-sm bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder:text-white/20 focus:outline-none focus:border-[#00d4aa]/30"
+              onKeyDown={(e) => e.key === "Enter" && handleTokenSubmit()}
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setTokenModal(null)}
+                className="px-4 py-2 text-xs text-white/40 hover:text-white/60 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTokenSubmit}
+                disabled={!tokenInput.trim() || saving}
+                className="flex items-center gap-2 px-4 py-2 text-xs bg-[#00d4aa]/20 text-[#00d4aa] rounded-lg hover:bg-[#00d4aa]/30 transition-colors disabled:opacity-40"
+              >
+                {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+                {saving ? "Validating..." : "Connect"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
