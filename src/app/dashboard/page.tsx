@@ -645,7 +645,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {voice.state === "listening" && (
           <motion.div
-            className="absolute bottom-20 md:bottom-24 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"
+            className="absolute bottom-32 md:bottom-32 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -674,7 +674,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {voice.state === "error" && voice.error && (
           <motion.div
-            className="absolute bottom-20 md:bottom-24 left-1/2 -translate-x-1/2 z-50 glass-card-bright px-4 py-2 text-xs text-red-400"
+            className="absolute bottom-32 md:bottom-32 left-1/2 -translate-x-1/2 z-50 glass-card-bright px-4 py-2 text-xs text-red-400"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -688,7 +688,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {appMode === "chat" && (
           <motion.div
-            className="absolute bottom-4 md:bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
+            className="absolute bottom-16 md:bottom-16 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center gap-2"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -754,7 +754,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {appMode === "speech" && (
           <motion.div
-            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3"
+            className="absolute bottom-16 md:bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}

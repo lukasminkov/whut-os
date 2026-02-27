@@ -62,7 +62,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           background: 'radial-gradient(ellipse at 30% 20%, rgba(0,212,170,0.04) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(99,102,241,0.03) 0%, transparent 60%)',
         }} />
         <Sidebar />
-        <div className="relative z-10 h-[calc(100vh-48px)] ml-0 md:ml-[200px]">{children}</div>
+        <div className="relative z-10 h-[calc(100vh-48px)] ml-0 md:ml-[200px] pb-12">{children}</div>
         <Taskbar />
         <ToastNotification />
       </div>

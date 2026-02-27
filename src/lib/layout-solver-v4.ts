@@ -82,7 +82,9 @@ export function solveFocusLayout(
   
   // Determine which element is center stage
   const centerId = focusedId || elements.find(e => e.priority === 1)?.id || elements[0].id;
-  const orbitals = elements.filter(e => e.id !== centerId);
+  const allOrbitals = elements.filter(e => e.id !== centerId);
+  // Limit visible orbitals to 6 max to prevent crushing
+  const orbitals = allOrbitals.slice(0, 6);
   
   // Center element: ~60% viewport, centered
   layoutMap.set(centerId, {
@@ -143,21 +145,6 @@ export function solveFocusLayout(
     const step = arcSpread > 1 ? (endAngle - startAngle) / (arcSpread - 1) : 0;
     
     orbitals.forEach((el, i) => {
-      if (i >= 6) {
-        // Extra orbitals go in a second ring
-        layoutMap.set(el.id, {
-          x: `${20 + (i - 6) * 15}%`,
-          y: "88%",
-          width: "22%",
-          height: "30%",
-          scale: 0.35,
-          opacity: 0.5,
-          zIndex: 3,
-          role: "orbital",
-        });
-        return;
-      }
-      
       const angle = arcSpread === 1 ? 0 : startAngle + step * i;
       // Compute position on elliptical arc
       const px = 50 + Math.sin(angle) * 38;  // % from center
