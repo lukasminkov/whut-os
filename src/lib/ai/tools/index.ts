@@ -6,7 +6,7 @@ import { executeWebTool } from "./web";
 import { executeOSTool } from "./os";
 
 const GOOGLE_TOOLS = new Set(["fetch_emails", "get_email", "fetch_calendar", "fetch_drive_files", "send_email", "archive_email"]);
-const WEB_TOOLS = new Set(["search_web", "read_page"]);
+const WEB_TOOLS = new Set(["search_web", "read_page", "enrich_entity"]);
 const OS_TOOLS = new Set(["file_manager", "window_manager", "browser_navigate"]);
 
 export const STATUS_MAP: Record<string, string> = {
@@ -18,6 +18,7 @@ export const STATUS_MAP: Record<string, string> = {
   get_email: "Reading email...",
   archive_email: "Archiving...",
   read_page: "Reading page...",
+  enrich_entity: "Enriching entity data...",
   file_manager: "Managing files...",
   window_manager: "Managing windows...",
   browser_navigate: "Opening browser...",

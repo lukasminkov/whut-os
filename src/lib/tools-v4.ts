@@ -8,6 +8,7 @@ const PRIMITIVE_TYPES: PrimitiveType[] = [
   "chart-line", "chart-bar", "chart-radial",
   "image", "table", "timeline",
   "search-results", "embed",
+  "rich-entity-card", "map-view", "gallery", "comparison-table",
 ];
 
 export const DISPLAY_TOOL = {
@@ -27,16 +28,27 @@ Primitive types:
 - timeline: { events: [{time, title, description?, active?}], title? } — horizontal timeline
 - search-results: { results: [{title, url, snippet, image?}], query } — web results
 - embed: { html?, url?, title? } — sandboxed iframe content
+- rich-entity-card: { title, subtitle?, heroImage?, rating?: {score, count?, source?}, price?: "$"/"$$"/"$$$"/"$$$$", tags?: string[], description?, highlights?: string[], actions?: [{label, url?, type?: "primary"|"secondary"}], location?: {lat, lng, address?}, reviewSnippet? } — THE go-to card for any real-world entity (restaurant, hotel, product, person, place). Shows hero image, rating stars, price, tags, action buttons. Use this instead of plain list items when you have rich data about entities.
+- map-view: { pins: [{lat, lng, label?, color?}], center?: {lat, lng}, zoom?, title?, style?: "dark"|"light" } — interactive map with location pins. Use whenever locations are involved.
+- gallery: { images: [{src, alt?, caption?}], title? } — horizontal scrollable image gallery with lightbox. Use for collections of visual items.
+- comparison-table: { columns: [{name, image?, values: {[metric]: value}}], metrics: string[], title?, highlightBest?: boolean } — side-by-side comparison of entities. Use when the user is choosing between options or asks "which one".
 
-Layout modes: 
-- focused: hero in center with supporting panels around it (DEFAULT for most queries)
-- split: two equal panels side by side
-- ambient: even grid for overview dashboards
-- immersive: single element full-screen
-- minimal: text-only, narrow column
+Layout modes (Jarvis HUD):
+- focused: PRIMARY element in center stage (~60% viewport) with orbital elements arranged radially around it. Clicking an orbital promotes it to center. DEFAULT for drill-downs, single-topic queries.
+- grid: Equal-size cards in a grid. Use for overview dashboards, comparisons, multiple metrics side by side.
+- stack: Full-width cards stacked vertically. Use for reading content, documents, long text, sequential info.
+- cinematic: Single fullscreen visualization with glass overlay info panels. Use for maps, images, immersive media.
+- split: Two panels side by side (legacy alias for focused with 2 elements).
+- ambient: Even grid (legacy alias for grid).
+- immersive: Fullscreen single element (legacy alias for cinematic).
+- minimal: Narrow column text-only (legacy alias for stack).
 
-Use "focused" for almost everything. Use "split" only for direct comparisons. Use "minimal" only for pure conversation text.
-Priority: 1=hero (center), 2=supporting (sides), 3=ambient (bottom)`,
+LAYOUT SELECTION GUIDE:
+- 1 main thing + supporting context → "focused" (email + metadata, chart + explanation)
+- Multiple equal items to compare → "grid" (KPI dashboard, email list + calendar)
+- Documents, articles, long reads → "stack"
+- Maps, photos, videos → "cinematic"
+Priority: 1=center stage (hero), 2=orbital/supporting, 3=background/ambient`,
   input_schema: {
     type: "object" as const,
     properties: {
@@ -50,8 +62,8 @@ Priority: 1=hero (center), 2=supporting (sides), 3=ambient (bottom)`,
       },
       layout: {
         type: "string",
-        enum: ["ambient", "focused", "split", "immersive", "minimal"],
-        description: "Layout mode. Use 'focused' for almost everything (hero center + supports around). 'split' for comparisons. 'minimal' for text only.",
+        enum: ["focused", "grid", "stack", "cinematic", "ambient", "split", "immersive", "minimal"],
+        description: "Layout mode. 'focused' = center stage + orbitals (default). 'grid' = equal cards. 'stack' = vertical reading. 'cinematic' = fullscreen + overlays.",
       },
       elements: {
         type: "array",
@@ -161,9 +173,23 @@ export const DATA_TOOLS = [
   },
 ];
 
+export const ENRICH_TOOL = {
+  name: "enrich_entity",
+  description: "Fetch rich data about a real-world entity (place, restaurant, product, person, etc). Returns images, ratings, reviews, pricing, website. Use this to get visual data for rich-entity-card displays. Call this BEFORE display when you need images/ratings for entities.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      name: { type: "string", description: "Entity name (e.g. 'Steirereck', 'iPhone 16 Pro')" },
+      type: { type: "string", description: "Entity type: restaurant, hotel, product, place, person, company, etc." },
+      location: { type: "string", description: "Location context if relevant (e.g. 'Vienna', 'Miami')" },
+    },
+    required: ["name"],
+  },
+};
+
 import { OS_TOOLS } from "@/features/ai-tools";
 
-export const AI_TOOLS_V4 = [...DATA_TOOLS, DISPLAY_TOOL, ...OS_TOOLS];
+export const AI_TOOLS_V4 = [...DATA_TOOLS, ENRICH_TOOL, DISPLAY_TOOL, ...OS_TOOLS];
 
 export const V4_SYSTEM_PROMPT = `# WHUT OS — Your Soul
 
