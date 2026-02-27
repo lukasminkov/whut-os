@@ -54,3 +54,29 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ integration: data });
 }
+
+// DELETE: Remove integration tokens
+export async function DELETE(req: NextRequest) {
+  const supabase = await createServerClient();
+  if (!supabase) return NextResponse.json({ error: 'Not configured' }, { status: 503 });
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json();
+  const { provider } = body;
+
+  if (!provider) {
+    return NextResponse.json({ error: 'provider required' }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from('integrations')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('provider', provider);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ deleted: true });
+}

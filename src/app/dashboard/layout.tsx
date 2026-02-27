@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "./Sidebar";
 import { createClient } from "@/lib/supabase";
 import AmbientBackground from "@/components/AmbientBackground";
+import ToastNotification from "@/components/ToastNotification";
 import { WindowManagerProvider } from "@/features/window-manager";
 import Taskbar from "@/features/window-manager/Taskbar";
 
@@ -63,6 +64,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <Sidebar />
         <div className="relative z-10 h-[calc(100vh-48px)] ml-0 md:ml-[200px]">{children}</div>
         <Taskbar />
+        <ToastNotification />
       </div>
     </WindowManagerProvider>
   );
