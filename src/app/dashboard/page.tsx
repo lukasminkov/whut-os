@@ -500,7 +500,7 @@ export default function DashboardPage() {
       case "chat":
         return (
           <div className="h-full p-4">
-            <ChatRecap messages={chatMessages} visible={true} onToggle={() => {}} />
+            <ChatRecap messages={chatMessages} visible={true} onClose={() => {}} />
           </div>
         );
       case "scene":
@@ -583,33 +583,39 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Floating Chat Recap Panel */}
+      {/* Chat sidebar panel */}
       <ChatRecap
         messages={chatMessages}
-        visible={showRecap && chatMessages.length > 0 && currentScene === null}
-        onToggle={() => setShowRecap(prev => !prev)}
+        visible={showRecap && chatMessages.length > 0}
+        onClose={() => setShowRecap(false)}
       />
 
-      {/* Chat recap toggle button (when hidden) */}
+      {/* Chat toggle — sleek AI indicator */}
       <AnimatePresence>
-        {((!showRecap && chatMessages.length > 0) || (currentScene !== null && chatMessages.length > 0)) && (
+        {!showRecap && chatMessages.length > 0 && (
           <motion.button
-            className="fixed right-4 bottom-20 md:right-6 md:bottom-24 z-50 w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer"
-            style={{
-              background: "rgba(255,255,255,0.06)",
-              backdropFilter: "blur(12px)",
-              border: "1px solid rgba(255,255,255,0.08)",
-            }}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
+            className="fixed right-0 top-1/2 -translate-y-1/2 z-50 flex items-center gap-0 cursor-pointer group"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
             onClick={() => setShowRecap(true)}
-            title="Show conversation"
+            title="Open conversation"
           >
-            <MessageSquare size={16} className="text-white/40" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#00d4aa]/80 text-[8px] text-white flex items-center justify-center font-bold">
-              {chatMessages.length}
-            </span>
+            {/* Vertical accent bar */}
+            <div className="relative flex flex-col items-center py-3 px-1.5 rounded-l-lg transition-all group-hover:px-2.5"
+              style={{
+                background: "rgba(10, 10, 14, 0.7)",
+                backdropFilter: "blur(20px)",
+                borderLeft: "1px solid rgba(0, 212, 170, 0.15)",
+                borderTop: "1px solid rgba(0, 212, 170, 0.08)",
+                borderBottom: "1px solid rgba(0, 212, 170, 0.08)",
+              }}
+            >
+              <div className="w-[2px] h-8 rounded-full bg-gradient-to-b from-[#00d4aa]/60 via-[#00d4aa]/30 to-transparent group-hover:h-10 transition-all" />
+              <div className="mt-1.5 text-[8px] font-mono text-[#00d4aa]/40 group-hover:text-[#00d4aa]/70 transition-colors tabular-nums">
+                {chatMessages.length}
+              </div>
+            </div>
           </motion.button>
         )}
       </AnimatePresence>
