@@ -14,3 +14,5 @@ export { default as TablePrimitive } from "./TablePrimitive";
 export { default as TimelinePrimitive } from "./TimelinePrimitive";
 export { default as SearchResultsPrimitive } from "./SearchResultsPrimitive";
 export { default as EmbedPrimitive } from "./EmbedPrimitive";
+export { default as ActionBar } from "./ActionBar";
+export { default as InlineCompose } from "./InlineCompose";

@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useCallback, useEffect, type ReactNode } from "react";
 import type { WorkspaceState, WindowAction, WindowType } from "./types";
 import { workspaceReducer, initialWorkspaceState } from "./reducer";
+import { screenContextStore } from "@/lib/screen-context";
 
 interface WindowManagerContextValue {
   state: WorkspaceState;
@@ -56,6 +57,19 @@ export function WindowManagerProvider({ children }: { children: ReactNode }) {
     },
     [state.windows.length]
   );
+
+  // Sync window state to screen context store
+  useEffect(() => {
+    const windows = state.windows
+      .filter((w) => !w.minimized)
+      .map((w) => ({
+        id: w.id,
+        type: w.type,
+        title: w.title,
+        focused: w.id === state.activeWindowId,
+      }));
+    screenContextStore.setOpenWindows(windows);
+  }, [state.windows, state.activeWindowId]);
 
   const closeWindow = useCallback((id: string) => dispatch({ type: "CLOSE", id }), []);
   const focusWindow = useCallback((id: string) => dispatch({ type: "FOCUS", id }), []);

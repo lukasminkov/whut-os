@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Folder, File, ChevronRight, Upload, Grid, List, Search, ArrowLeft } from "lucide-react";
 import { getVFS, createSupabaseBackend, createGDriveBackend } from "./index";
 import type { VFSNode } from "./types";
+import { screenContextStore } from "@/lib/screen-context";
 
 // Initialize VFS once
 let vfsInitialized = false;
@@ -29,6 +30,18 @@ export default function FileBrowser() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Report file browser state to screen context
+  useEffect(() => {
+    screenContextStore.setActiveFile({
+      path: currentPath,
+      name: currentPath.split("/").pop() || "/",
+      type: "directory",
+    });
+    return () => {
+      screenContextStore.setActiveFile(null);
+    };
+  }, [currentPath]);
 
   const loadFiles = useCallback(async (path: string) => {
     ensureVFS();

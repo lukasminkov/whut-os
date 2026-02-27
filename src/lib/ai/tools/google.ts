@@ -2,7 +2,7 @@
 
 import {
   getRecentEmails, getMessage, getUpcomingEvents, getRecentDriveFiles,
-  sendEmail, archiveEmail, refreshAccessToken,
+  sendEmail, archiveEmail, markAsRead, refreshAccessToken,
 } from "@/lib/google";
 import { cached, invalidate } from "@/lib/api-cache";
 import type { GoogleTokens, ToolResult } from "../types";
@@ -46,6 +46,11 @@ export async function executeGoogleTool(
       const id = input.id as string;
       const cacheKey = `email:${userId || "anon"}:${id}`;
       const email = await cached(cacheKey, 60_000, () => withRefresh(t => getMessage(t, id)));
+      // Auto-mark as read when opened
+      withRefresh(t => markAsRead(t, id)).catch(() => {/* best-effort */});
+      // Invalidate email list cache so unread state updates
+      invalidate(`emails:${userId || "anon"}:10`);
+      invalidate(`emails:${userId || "anon"}:15`);
       return { result: email as Record<string, unknown>, status: "Reading email" };
     }
     case "fetch_calendar": {

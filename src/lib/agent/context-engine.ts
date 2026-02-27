@@ -1,4 +1,7 @@
 // Context Engine — Maintains workspace awareness across sessions
+// NOTE: Real-time screen state is tracked by screenContextStore (src/lib/screen-context/).
+// This engine handles persistent/session-level context (actions, preferences, integrations).
+// The two systems complement each other: this = session history, screenContext = live UI state.
 
 export interface WorkspaceContext {
   activeView: string; // Current page/route
