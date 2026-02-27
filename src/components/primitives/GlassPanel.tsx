@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import { X, Minus } from "lucide-react";
 
 export type GlassPanelVariant = "default" | "center" | "orbital" | "cinematic-overlay";
@@ -19,41 +20,44 @@ interface GlassPanelProps {
   noPadding?: boolean;
   isDragging?: boolean;
   onDragStart?: (e: React.PointerEvent) => void;
-  /** HUD variant — controls glass depth, glow, opacity */
   variant?: GlassPanelVariant;
-  /** Extra content rendered in the title bar (e.g. feedback widget) */
   titleBarExtra?: ReactNode;
+  /** Stagger index for mount animation */
+  staggerIndex?: number;
 }
 
-// Visual presets per variant
 const variantStyles = {
   default: {
-    bgAlpha: "rgba(255,255,255,0.04)",
-    borderColor: "rgba(255,255,255,0.06)",
-    blur: 20,
-    glow: "0 0 12px rgba(0,212,170,0.02)",
-    shadow: "0 4px 16px rgba(0,0,0,0.2)",
+    bg: "rgba(8, 12, 20, 0.65)",
+    border: "rgba(0, 212, 170, 0.08)",
+    blur: 24,
+    glow: "0 0 20px rgba(0,212,170,0.03)",
+    shadow: "0 8px 32px rgba(0,0,0,0.4)",
+    innerHighlight: 0.03,
   },
   center: {
-    bgAlpha: "rgba(10,12,18,0.85)",
-    borderColor: "rgba(0,212,170,0.18)",
-    blur: 24,
-    glow: "0 0 40px rgba(0,212,170,0.1), 0 0 80px rgba(0,212,170,0.04)",
+    bg: "rgba(6, 10, 18, 0.82)",
+    border: "rgba(0, 212, 170, 0.2)",
+    blur: 28,
+    glow: "0 0 40px rgba(0,212,170,0.08), 0 0 80px rgba(0,212,170,0.03)",
     shadow: "0 12px 48px rgba(0,0,0,0.5)",
+    innerHighlight: 0.06,
   },
   orbital: {
-    bgAlpha: "rgba(255,255,255,0.025)",
-    borderColor: "rgba(255,255,255,0.05)",
-    blur: 28,
-    glow: "0 0 8px rgba(0,212,170,0.015)",
-    shadow: "0 4px 20px rgba(0,0,0,0.25)",
+    bg: "rgba(8, 12, 20, 0.45)",
+    border: "rgba(0, 212, 170, 0.06)",
+    blur: 32,
+    glow: "0 0 12px rgba(0,212,170,0.02)",
+    shadow: "0 4px 20px rgba(0,0,0,0.3)",
+    innerHighlight: 0.02,
   },
   "cinematic-overlay": {
-    bgAlpha: "rgba(10,12,18,0.7)",
-    borderColor: "rgba(255,255,255,0.08)",
+    bg: "rgba(6, 10, 18, 0.7)",
+    border: "rgba(0, 212, 170, 0.1)",
     blur: 32,
-    glow: "0 0 20px rgba(0,212,170,0.05)",
+    glow: "0 0 24px rgba(0,212,170,0.04)",
     shadow: "0 8px 32px rgba(0,0,0,0.4)",
+    innerHighlight: 0.04,
   },
 };
 
@@ -61,44 +65,40 @@ export default function GlassPanel({
   children, title, className = "", onDismiss, onMinimize, onFocus,
   minimized, focused, dimmed, priority = 2, noPadding,
   isDragging, onDragStart, variant = "default", titleBarExtra,
+  staggerIndex = 0,
 }: GlassPanelProps) {
   const isHero = priority === 1 || variant === "center";
-  const [entered, setEntered] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setEntered(true), 500);
-    return () => clearTimeout(t);
-  }, []);
+  const v = variantStyles[variant] || variantStyles.default;
 
-  const vStyle = variantStyles[variant] || variantStyles.default;
-
-  // Override with focus state if explicitly focused
-  const borderFinal = focused
-    ? "rgba(0,212,170,0.22)"
-    : vStyle.borderColor;
-
+  const borderFinal = focused ? "rgba(0,212,170,0.25)" : v.border;
   const glowFinal = focused
-    ? "0 0 30px rgba(0,212,170,0.14), 0 0 60px rgba(0,212,170,0.06)"
-    : vStyle.glow;
-
-  const bgFinal = focused
-    ? "rgba(10,12,18,0.88)"
-    : vStyle.bgAlpha;
+    ? "0 0 30px rgba(0,212,170,0.12), 0 0 60px rgba(0,212,170,0.05)"
+    : v.glow;
+  const bgFinal = focused ? "rgba(6,10,18,0.85)" : v.bg;
 
   return (
-    <div
-      className={`group relative rounded-2xl overflow-hidden pointer-events-auto holo-panel holo-scanlines holo-glow ${!entered ? "holo-enter" : ""} ${className}`}
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95, filter: "blur(8px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.96, filter: "blur(4px)" }}
+      transition={{
+        duration: 0.4,
+        delay: staggerIndex * 0.1,
+        ease: [0.23, 1, 0.32, 1],
+      }}
+      className={`group relative rounded-xl overflow-hidden pointer-events-auto ${className}`}
       style={{
         background: bgFinal,
-        backdropFilter: `blur(${vStyle.blur}px)`,
-        WebkitBackdropFilter: `blur(${vStyle.blur}px)`,
+        backdropFilter: `blur(${v.blur}px)`,
+        WebkitBackdropFilter: `blur(${v.blur}px)`,
         border: `1px solid ${borderFinal}`,
-        boxShadow: `${vStyle.shadow}, inset 0 1px 0 rgba(255,255,255,${variant === "center" ? 0.08 : 0.04}), ${glowFinal}`,
+        boxShadow: `${v.shadow}, inset 0 1px 0 rgba(255,255,255,${v.innerHighlight}), ${glowFinal}`,
         transform: isDragging ? "scale(1.02)" : undefined,
-        opacity: dimmed ? 0.5 : 1,
+        opacity: dimmed ? 0.5 : undefined,
         filter: dimmed ? "brightness(0.7)" : undefined,
-        transition: "box-shadow 0.4s ease, transform 0.2s, border-color 0.4s ease, opacity 0.3s ease, filter 0.3s ease, background 0.4s ease",
+        transition: "box-shadow 0.4s ease, border-color 0.4s ease, opacity 0.3s ease",
         minWidth: "250px",
         minHeight: minimized ? undefined : "150px",
         display: "flex",
@@ -113,7 +113,7 @@ export default function GlassPanel({
       {/* Title bar */}
       {(title || onDismiss || onMinimize) && (
         <div
-          className={`flex items-center justify-between border-b border-white/[0.04] select-none shrink-0 ${isHero ? "px-6 py-3" : "px-4 py-2.5"}`}
+          className={`flex items-center justify-between border-b border-white/[0.04] select-none shrink-0 ${isHero ? "px-5 py-2.5" : "px-4 py-2"}`}
           style={{ cursor: isDragging ? "grabbing" : onDragStart ? "grab" : "default" }}
           onPointerDown={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
@@ -124,10 +124,13 @@ export default function GlassPanel({
         >
           {title && (
             <span
-              className="uppercase tracking-[0.15em] font-medium truncate max-w-[70%]"
+              className="uppercase tracking-[0.18em] font-medium truncate max-w-[70%]"
               style={{
-                fontSize: isHero ? "11px" : "10px",
-                color: variant === "center" ? "rgba(0,212,170,0.6)" : "rgba(255,255,255,0.4)",
+                fontSize: isHero ? "10px" : "9px",
+                color: variant === "center" || focused
+                  ? "rgba(0,212,170,0.7)"
+                  : "rgba(255,255,255,0.35)",
+                letterSpacing: "0.18em",
               }}
             >
               {title}
@@ -139,37 +142,37 @@ export default function GlassPanel({
               <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onMinimize(); }}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="w-6 h-6 flex items-center justify-center rounded-full border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/30 transition-colors text-white/40 hover:text-amber-400 cursor-pointer"
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-amber-500/15 transition-colors text-white/25 hover:text-amber-400/70 cursor-pointer"
               >
-                <Minus size={12} />
+                <Minus size={10} />
               </button>
             )}
             {onDismiss && (
               <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(); }}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="w-7 h-7 flex items-center justify-center rounded-full border border-white/10 hover:bg-rose-500/20 hover:border-rose-400/30 transition-colors text-white/40 hover:text-rose-400 cursor-pointer"
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-rose-500/15 transition-colors text-white/25 hover:text-rose-400/70 cursor-pointer"
               >
-                <X size={14} />
+                <X size={12} />
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* Content — scrollable */}
+      {/* Content */}
       {!minimized && (
         <div
           ref={contentRef}
-          className={`${noPadding ? "" : isHero ? "p-6" : "p-4"} overflow-y-auto overflow-x-hidden flex-1 min-h-0`}
+          className={`${noPadding ? "" : isHero ? "p-5" : "p-4"} overflow-y-auto overflow-x-hidden flex-1 min-h-0`}
           style={{
             scrollbarWidth: "thin",
-            scrollbarColor: "rgba(255,255,255,0.1) transparent",
+            scrollbarColor: "rgba(255,255,255,0.08) transparent",
           }}
         >
           {children}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

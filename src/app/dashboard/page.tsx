@@ -269,6 +269,7 @@ export default function DashboardPage() {
       let spokenText = "";
       let receivedScene = false;
       let preambleSpoken = false;
+      let preambleSpeakTimer: ReturnType<typeof setTimeout> | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -285,9 +286,6 @@ export default function DashboardPage() {
 
             if (event.type === "text_delta") {
               streamingText += event.text;
-              // Don't create a scene panel yet — wait for "done" event
-              // The AI might follow up with a tool call (search → display)
-              // Just update the chat recap for now
               setThinking(false);
 
               // Update chat recap with streaming text
@@ -302,6 +300,17 @@ export default function DashboardPage() {
                   m.id === assistantMsgId ? { ...m, content: streamingText } : m
                 ));
               }
+
+              // Speak preamble text immediately (debounced 300ms to batch short deltas)
+              if (!preambleSpoken && !receivedScene) {
+                if (preambleSpeakTimer) clearTimeout(preambleSpeakTimer);
+                preambleSpeakTimer = setTimeout(() => {
+                  if (!preambleSpoken && streamingText.trim()) {
+                    preambleSpoken = true;
+                    tts.speak(streamingText.trim());
+                  }
+                }, 300);
+              }
             } else if (event.type === "status") {
               setStatusText(event.text);
             } else if (event.type === "scene") {
@@ -310,12 +319,6 @@ export default function DashboardPage() {
               setCurrentScene(event.scene);
               setThinking(false);
               setStatusText(null);
-
-              // Voice-first: speak preamble text immediately while cards load
-              if (streamingText.trim() && !preambleSpoken) {
-                preambleSpoken = true;
-                tts.speak(streamingText.trim());
-              }
             } else if (event.type === "card") {
               const card = event.card;
               if (card?.type === "content" && card?.data?.content) {
@@ -324,12 +327,6 @@ export default function DashboardPage() {
                   elements: [{ id: "response", type: "text", priority: 1, data: { content: card.data.content, typewriter: true } }],
                 });
                 receivedScene = true;
-
-                // Voice-first: speak preamble text immediately while cards load
-                if (streamingText.trim() && !preambleSpoken) {
-                  preambleSpoken = true;
-                  tts.speak(streamingText.trim());
-                }
               }
               setThinking(false);
               setStatusText(null);
@@ -376,6 +373,7 @@ export default function DashboardPage() {
       }
 
       // Finalize
+      if (preambleSpeakTimer) clearTimeout(preambleSpeakTimer);
       const finalText = spokenText || streamingText;
 
       if (!receivedScene && finalText) {

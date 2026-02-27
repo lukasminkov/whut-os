@@ -179,6 +179,7 @@ function HUDElement({
           dimmed={false}
           variant="default"
           titleBarExtra={feedbackWidget}
+          staggerIndex={index}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={() => SceneManager.minimizeElement(element.id)}
         >
@@ -208,6 +209,7 @@ function HUDElement({
           dimmed={false}
           variant="default"
           titleBarExtra={feedbackWidget}
+          staggerIndex={index}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={() => SceneManager.minimizeElement(element.id)}
         >
@@ -269,6 +271,7 @@ function HUDElement({
           variant={isCenter ? "center" : isOrbital ? "orbital" : isCinematicOverlay ? "cinematic-overlay" : "default"}
           onFocus={isOrbital ? () => onPromote(element.id) : undefined}
           titleBarExtra={feedbackWidget}
+          staggerIndex={index}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={isCenter ? () => SceneManager.minimizeElement(element.id) : undefined}
         >
@@ -393,7 +396,8 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
 
   // Grid layout for grid mode
   const gridCols = isGridMode
-    ? visibleElements.length <= 2 ? visibleElements.length
+    ? visibleElements.length === 1 ? 1
+      : visibleElements.length <= 3 ? visibleElements.length
       : visibleElements.length <= 4 ? 2
       : visibleElements.length <= 9 ? 3 : 4
     : 1;
@@ -465,15 +469,17 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
         </div>
       ) : isGridMode ? (
         /* Grid mode — CSS grid */
-        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto">
+        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto flex items-start justify-center">
           <div
             ref={containerRef}
-            className="mx-auto w-full"
+            className="w-full"
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : `repeat(${gridCols}, 1fr)`,
-              gap: isMobile ? "12px" : "16px",
-              maxWidth: "100%",
+              gridTemplateColumns: isMobile ? "1fr" : `repeat(${gridCols}, minmax(0, ${visibleElements.length === 1 ? '560px' : '1fr'}))`,
+              gap: isMobile ? "12px" : "20px",
+              maxWidth: visibleElements.length === 1 ? "600px" : visibleElements.length <= 3 ? "1100px" : "100%",
+              margin: "0 auto",
+              paddingTop: visibleElements.length === 1 ? "clamp(24px, 8vh, 80px)" : "16px",
             }}
           >
             <AnimatePresence mode="popLayout">
