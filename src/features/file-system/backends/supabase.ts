@@ -26,6 +26,7 @@ function storagePath(vfsPath: string): string {
 
 export function createSupabaseBackend(): VFSBackend {
   const supabase = createClient();
+  if (!supabase) throw new Error("Supabase not configured");
 
   return {
     name: "supabase",
