@@ -61,7 +61,7 @@ export default function ThinkingOverlay({ active, statusText, onBurstComplete }:
       <AnimatePresence>
         {active && (
           <motion.div
-            className="fixed inset-0 z-25 flex flex-col items-center justify-center pointer-events-none"
+            className="fixed inset-0 md:left-[200px] z-25 flex flex-col items-center justify-center pointer-events-none"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.3 } }}
@@ -146,7 +146,7 @@ export default function ThinkingOverlay({ active, statusText, onBurstComplete }:
       <AnimatePresence>
         {showBurst && (
           <motion.div
-            className="fixed inset-0 z-25 flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 md:left-[200px] z-25 flex items-center justify-center pointer-events-none"
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
