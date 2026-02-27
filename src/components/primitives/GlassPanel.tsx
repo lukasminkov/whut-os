@@ -21,6 +21,8 @@ interface GlassPanelProps {
   onDragStart?: (e: React.PointerEvent) => void;
   /** HUD variant — controls glass depth, glow, opacity */
   variant?: GlassPanelVariant;
+  /** Extra content rendered in the title bar (e.g. feedback widget) */
+  titleBarExtra?: ReactNode;
 }
 
 // Visual presets per variant
@@ -58,7 +60,7 @@ const variantStyles = {
 export default function GlassPanel({
   children, title, className = "", onDismiss, onMinimize, onFocus,
   minimized, focused, dimmed, priority = 2, noPadding,
-  isDragging, onDragStart, variant = "default",
+  isDragging, onDragStart, variant = "default", titleBarExtra,
 }: GlassPanelProps) {
   const isHero = priority === 1 || variant === "center";
   const [entered, setEntered] = useState(false);
@@ -132,6 +134,7 @@ export default function GlassPanel({
             </span>
           )}
           <div className="flex items-center gap-1.5 ml-auto">
+            {titleBarExtra}
             {onMinimize && (
               <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onMinimize(); }}

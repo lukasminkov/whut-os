@@ -7,6 +7,7 @@ import { recordToolError } from "@/lib/self-improve";
 import { getUser, getGoogleTokens, updateGoogleToken, loadIntegrations, loadHistory, getMessageCount, saveMessage } from "@/lib/ai/db";
 import { loadMemoryContext } from "@/lib/ai/memory";
 import { buildSystemPrompt } from "@/lib/ai/prompt";
+import { getRelevantFeedback, getDesignPreferences, formatFeedbackForPrompt } from "@/lib/feedback";
 import { selectModel } from "@/lib/ai/models";
 import { executeTool, STATUS_MAP } from "@/lib/ai/tools";
 
@@ -46,13 +47,17 @@ export async function POST(req: NextRequest) {
   const onRefresh = user ? (token: string) => updateGoogleToken(user.id, token) : undefined;
 
   // 3. Load context in parallel
-  const [memoryCtx, integrations, usageStats, dbHistory, msgCount] = await Promise.all([
+  const [memoryCtx, integrations, usageStats, dbHistory, msgCount, feedbackEntries, designPrefs] = await Promise.all([
     user ? loadMemoryContext(user.id, message) : Promise.resolve({ memoryBlock: "", topMemories: [] as string[], relevantMemories: [] }),
     user ? loadIntegrations(user.id) : Promise.resolve([]),
     user ? getTodayUsageStats(user.id) : Promise.resolve(null),
     conversationId ? loadHistory(conversationId) : Promise.resolve([]),
     conversationId ? getMessageCount(conversationId) : Promise.resolve(0),
+    user ? getRelevantFeedback(user.id, message) : Promise.resolve([]),
+    user ? getDesignPreferences(user.id) : Promise.resolve(null),
   ]);
+
+  const feedbackBlock = formatFeedbackForPrompt(feedbackEntries, designPrefs);
 
   const isFirstMessage = msgCount === 0;
 
@@ -91,6 +96,7 @@ export async function POST(req: NextRequest) {
     topMemories: memoryCtx.topMemories,
     usageStats,
     relevantMemories: memoryCtx.relevantMemories,
+    feedbackBlock,
   });
   if (prefetchedBlock) systemPrompt += prefetchedBlock;
 

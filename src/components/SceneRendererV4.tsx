@@ -30,6 +30,7 @@ import {
   GalleryPrimitive,
   ComparisonTablePrimitive,
 } from "./primitives";
+import FeedbackWidget from "./FeedbackWidget";
 
 // ── Primitive Dispatcher ────────────────────────────────
 
@@ -88,6 +89,7 @@ function HUDElement({
   onPromote,
   mouseX,
   mouseY,
+  userQuery,
 }: {
   element: SceneElement;
   index: number;
@@ -100,10 +102,21 @@ function HUDElement({
   onPromote: (id: string) => void;
   mouseX: number;
   mouseY: number;
+  userQuery?: string;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
   const [isHovered, setIsHovered] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const feedbackWidget = (
+    <FeedbackWidget
+      containerRef={panelRef}
+      visualizationType={element.type}
+      userQuery={userQuery}
+      aiResponseSummary={element.title}
+    />
+  );
 
   const {
     config: actionConfig,
@@ -165,6 +178,7 @@ function HUDElement({
           focused={false}
           dimmed={false}
           variant="default"
+          titleBarExtra={feedbackWidget}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={() => SceneManager.minimizeElement(element.id)}
         >
@@ -193,6 +207,7 @@ function HUDElement({
           focused={false}
           dimmed={false}
           variant="default"
+          titleBarExtra={feedbackWidget}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={() => SceneManager.minimizeElement(element.id)}
         >
@@ -253,6 +268,7 @@ function HUDElement({
           dimmed={false}
           variant={isCenter ? "center" : isOrbital ? "orbital" : isCinematicOverlay ? "cinematic-overlay" : "default"}
           onFocus={isOrbital ? () => onPromote(element.id) : undefined}
+          titleBarExtra={feedbackWidget}
           onDismiss={() => SceneManager.dismissElement(element.id)}
           onMinimize={isCenter ? () => SceneManager.minimizeElement(element.id) : undefined}
         >
@@ -441,6 +457,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                   onPromote={handlePromote}
                   mouseX={mousePos.x}
                   mouseY={mousePos.y}
+                  userQuery={scene.intent}
                 />
               );
             })}
@@ -477,6 +494,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                     onPromote={handlePromote}
                     mouseX={mousePos.x}
                     mouseY={mousePos.y}
+                  userQuery={scene.intent}
                   />
                 );
               })}
@@ -505,6 +523,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                     onPromote={handlePromote}
                     mouseX={mousePos.x}
                     mouseY={mousePos.y}
+                  userQuery={scene.intent}
                   />
                 );
               })}

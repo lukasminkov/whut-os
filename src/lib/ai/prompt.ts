@@ -11,10 +11,11 @@ interface PromptOptions {
   topMemories: string[];
   usageStats: UsageStats | null;
   relevantMemories: MemoryEntry[];
+  feedbackBlock?: string;
 }
 
 export function buildSystemPrompt(opts: PromptOptions): string {
-  const { context, memoryBlock, integrations, topMemories, usageStats, relevantMemories } = opts;
+  const { context, memoryBlock, integrations, topMemories, usageStats, relevantMemories, feedbackBlock } = opts;
   const profile = context?.userProfile || {};
   const tz = context?.timezone || (profile as Record<string, unknown>)?.timezone as string || "UTC";
   const time = context?.time || new Date().toISOString();
@@ -111,6 +112,8 @@ You have awareness of what the user is currently viewing. When they reference "t
 - "Open that" → use the most recently referenced item
 Do NOT ask the user to clarify what they mean when screen context makes it obvious.`;
   }
+
+  if (feedbackBlock) prompt += feedbackBlock;
 
   prompt += `\n\n## Guidelines
 - When uncertain, say so clearly rather than guessing.
