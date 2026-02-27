@@ -255,6 +255,13 @@ async function executeTool(
         return { result: { error: "Could not read page" }, status: "Read failed" };
       }
     }
+    // OS tools — these return commands for the client to execute
+    case "file_manager":
+      return { result: { os_command: "file_manager", ...input }, status: `Managing files...` };
+    case "window_manager":
+      return { result: { os_command: "window_manager", ...input }, status: `Managing windows...` };
+    case "browser_navigate":
+      return { result: { os_command: "browser_navigate", ...input }, status: `Opening browser...` };
     default:
       return { result: { error: `Unknown tool: ${name}` } };
   }
@@ -490,6 +497,9 @@ export async function POST(req: NextRequest) {
             get_email: "Reading email...",
             archive_email: "Archiving...",
             read_page: "Reading page...",
+            file_manager: "Managing files...",
+            window_manager: "Managing windows...",
+            browser_navigate: "Opening browser...",
           };
 
           for (const tool of toolUses) {
@@ -514,6 +524,13 @@ export async function POST(req: NextRequest) {
               };
             }
           });
+
+          // Emit OS commands to client
+          for (const res of settled) {
+            if (res.status === "fulfilled" && res.value.result?.os_command) {
+              send({ type: "os_command", command: res.value.result });
+            }
+          }
 
           currentMessages = [...currentMessages, { role: "user", content: toolResults }];
         }

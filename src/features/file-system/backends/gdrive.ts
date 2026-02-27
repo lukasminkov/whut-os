@@ -1,17 +1,22 @@
 import type { VFSBackend, VFSNode, VFSListOptions, VFSSearchOptions } from "../types";
 
-function getTokens(): { access_token: string; refresh_token?: string } | null {
-  if (typeof window === "undefined") return null;
+let cachedTokens: { access_token: string; refresh_token?: string } | null = null;
+
+async function getTokens(): Promise<{ access_token: string; refresh_token?: string } | null> {
+  if (cachedTokens) return cachedTokens;
   try {
-    const raw = localStorage.getItem("whut_google_tokens");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+    const res = await fetch("/api/integrations/tokens?provider=google");
+    if (!res.ok) return null;
+    const data = await res.json();
+    const integration = data.integrations?.[0];
+    if (!integration?.access_token) return null;
+    cachedTokens = { access_token: integration.access_token, refresh_token: integration.refresh_token };
+    return cachedTokens;
+  } catch { return null; }
 }
 
 async function gdriveApi(path: string, options?: RequestInit): Promise<Response> {
-  const tokens = getTokens();
+  const tokens = await getTokens();
   if (!tokens) throw new Error("Google Drive not connected");
 
   const res = await fetch(`/api/google/drive${path}`, {

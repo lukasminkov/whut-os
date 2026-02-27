@@ -48,18 +48,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Still pass tokens via hash for backward compatibility (localStorage fallback)
-    const payload = {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: Date.now() + (tokens.expires_in || 3600) * 1000,
-      scope: tokens.scope,
-      ...(email ? { email } : {}),
-    };
-
-    const redirectUrl = new URL('/dashboard/integrations', req.url);
-    redirectUrl.hash = `google_tokens=${encodeURIComponent(JSON.stringify(payload))}`;
-    return NextResponse.redirect(redirectUrl);
+    // Tokens saved to DB — redirect cleanly
+    return NextResponse.redirect(new URL('/dashboard/integrations?google_connected=true', req.url));
   } catch (err) {
     console.error('Google OAuth callback error:', err);
     return NextResponse.redirect(new URL('/dashboard/integrations?error=exchange_failed', req.url));

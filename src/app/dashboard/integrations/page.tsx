@@ -161,17 +161,12 @@ export default function IntegrationsPage() {
     }
   }, [searchParams]);
 
-  // Process Google OAuth tokens from URL hash
+  // Process Google OAuth tokens from URL hash (tokens already saved to DB by callback)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hash = window.location.hash;
     if (hash.includes("google_tokens=")) {
-      const encoded = hash.split("google_tokens=")[1];
-      try {
-        const tokens = JSON.parse(decodeURIComponent(encoded));
-        localStorage.setItem("whut_google_tokens", JSON.stringify(tokens));
-        window.history.replaceState({}, "", "/dashboard/integrations");
-      } catch { /* ignore */ }
+      window.history.replaceState({}, "", "/dashboard/integrations");
     }
   }, []);
 

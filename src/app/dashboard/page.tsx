@@ -15,6 +15,7 @@ import { ImagePlus, X, MessageSquare } from "lucide-react";
 import ChatRecap, { type RecapMessage } from "@/components/ChatRecap";
 import { cacheScene, getCachedScene, isRepeatRequest, getLastScene } from "@/lib/scene-cache";
 import ThinkingOverlay from "@/components/ThinkingOverlay";
+import { useWindowManager } from "@/features/window-manager";
 
 const SUGGESTIONS = [
   "What's my day look like?",
