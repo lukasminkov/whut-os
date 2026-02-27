@@ -268,6 +268,7 @@ export default function DashboardPage() {
       let streamingText = "";
       let spokenText = "";
       let receivedScene = false;
+      let preambleSpoken = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -309,6 +310,12 @@ export default function DashboardPage() {
               setCurrentScene(event.scene);
               setThinking(false);
               setStatusText(null);
+
+              // Voice-first: speak preamble text immediately while cards load
+              if (streamingText.trim() && !preambleSpoken) {
+                preambleSpoken = true;
+                tts.speak(streamingText.trim());
+              }
             } else if (event.type === "card") {
               const card = event.card;
               if (card?.type === "content" && card?.data?.content) {
@@ -317,6 +324,12 @@ export default function DashboardPage() {
                   elements: [{ id: "response", type: "text", priority: 1, data: { content: card.data.content, typewriter: true } }],
                 });
                 receivedScene = true;
+
+                // Voice-first: speak preamble text immediately while cards load
+                if (streamingText.trim() && !preambleSpoken) {
+                  preambleSpoken = true;
+                  tts.speak(streamingText.trim());
+                }
               }
               setThinking(false);
               setStatusText(null);
@@ -391,10 +404,16 @@ export default function DashboardPage() {
         cacheScene(trimmed, lastSceneRef.current, finalText);
       }
 
-      if (finalText) {
+      // If preamble was already spoken and final text is just the preamble, skip
+      const shouldSpeak = finalText && !(preambleSpoken && finalText.trim() === streamingText.trim());
+      if (shouldSpeak) {
         tts.speak(finalText, () => {
           if (speechLoopRef.current) voice.startListening();
         });
+      } else if (preambleSpoken && speechLoopRef.current) {
+        // Preamble TTS is playing/queued — restart listening when it ends
+        // (handled by TTS onEnd naturally)
+        voice.startListening();
       } else if (speechLoopRef.current) {
         voice.startListening();
       }
