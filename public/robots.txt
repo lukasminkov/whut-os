@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://whut.ai/sitemap.xml
