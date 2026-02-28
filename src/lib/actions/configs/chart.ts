@@ -4,10 +4,57 @@ export const chartActionConfig: ActionConfig = {
   visualizationType: "chart",
   match: (elementType) => elementType.startsWith("chart-"),
   actions: [
-    { id: "chart-refresh", label: "Refresh", icon: "RefreshCw", primary: true, execute: (ctx) => ctx.helpers.toast("Refreshed", "success") },
-    { id: "chart-export-png", label: "Export PNG", icon: "ImageDown", execute: (ctx) => ctx.helpers.toast("Exported PNG", "success") },
-    { id: "chart-export-csv", label: "Export CSV", icon: "FileSpreadsheet", execute: (ctx) => { ctx.helpers.copyToClipboard(JSON.stringify(ctx.data, null, 2)); ctx.helpers.toast("Data copied", "success"); } },
-    { id: "chart-fullscreen", label: "Fullscreen", icon: "Maximize2", primary: true, execute: () => {} },
+    {
+      id: "chart-expand",
+      label: "Expand",
+      icon: "Maximize2",
+      primary: true,
+      execute: (ctx) => {
+        // Focus this element in the scene
+        ctx.helpers.sendToAI(`Show the ${ctx.title || "chart"} in full detail`);
+      },
+    },
+    {
+      id: "chart-filter",
+      label: "Filter",
+      icon: "Filter",
+      primary: true,
+      execute: (ctx) => {
+        ctx.helpers.sendToAI(`Filter the data in this ${ctx.elementType}: ${ctx.title || ""}`);
+      },
+    },
+    {
+      id: "chart-export-csv",
+      label: "Export CSV",
+      icon: "FileSpreadsheet",
+      execute: (ctx) => {
+        const d = ctx.data;
+        let csv = "";
+        if (d.points) {
+          csv = "Label,Value\n" + d.points.map((p: any) => `${p.label},${p.value}`).join("\n");
+        } else if (d.bars) {
+          csv = "Label,Value\n" + d.bars.map((b: any) => `${b.label},${b.value}`).join("\n");
+        } else {
+          csv = JSON.stringify(d, null, 2);
+        }
+        ctx.helpers.copyToClipboard(csv);
+        ctx.helpers.toast("CSV copied to clipboard", "success");
+      },
+    },
+    {
+      id: "chart-export-png",
+      label: "Export PNG",
+      icon: "ImageDown",
+      execute: (ctx) => {
+        ctx.helpers.toast("Exported PNG", "success");
+      },
+    },
+    {
+      id: "chart-refresh",
+      label: "Refresh",
+      icon: "RefreshCw",
+      execute: (ctx) => ctx.helpers.sendToAI(`Refresh the data for: ${ctx.title || "this chart"}`),
+    },
   ],
   aiActions: [
     { id: "chart-ai-explain", label: "Explain Trend", inline: true, prompt: (ctx) => `Explain this ${ctx.elementType} data trend:\n\n${JSON.stringify(ctx.data)}` },
