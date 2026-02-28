@@ -1,7 +1,7 @@
 // WHUT OS V4 — Jarvis HUD Layout Engine
-// Clean centered layout with responsive grid
+// Clean centered layout with responsive grid + auto-layout intelligence
 
-import type { SceneElement, LayoutMode } from "./scene-v4-types";
+import type { SceneElement, LayoutMode, PrimitiveType } from "./scene-v4-types";
 
 // ── Content-Aware Sizing ────────────────────────────────
 
@@ -87,7 +87,7 @@ export interface ElementLayout {
   scale: number;
   opacity: number;
   zIndex: number;
-  role: "center" | "orbital" | "grid" | "stack" | "cinematic-main" | "cinematic-overlay";
+  role: "center" | "orbital" | "grid" | "stack" | "cinematic-main" | "cinematic-overlay" | "sidebar";
 }
 
 export interface SolvedLayout {
@@ -99,6 +99,52 @@ export interface SolvedLayout {
 export interface HUDLayout {
   mode: "absolute" | "grid" | "stack";
   elements: Map<string, ElementLayout>;
+}
+
+// ── Content Type Classification ─────────────────────────
+
+const METRIC_TYPES: Set<PrimitiveType> = new Set(["metric", "chart-gauge", "chart-radial"]);
+const CHART_TYPES: Set<PrimitiveType> = new Set(["chart-line", "chart-bar", "chart-radar", "chart-candlestick"]);
+const DETAIL_TYPES: Set<PrimitiveType> = new Set(["detail", "rich-entity-card", "text", "embed"]);
+const COMPACT_TYPES: Set<PrimitiveType> = new Set(["metric", "chart-gauge", "chart-radial"]);
+
+function classifyElements(elements: SceneElement[]) {
+  const metrics = elements.filter(e => METRIC_TYPES.has(e.type));
+  const charts = elements.filter(e => CHART_TYPES.has(e.type));
+  const details = elements.filter(e => DETAIL_TYPES.has(e.type));
+  const compact = elements.filter(e => COMPACT_TYPES.has(e.type));
+  const maps = elements.filter(e => e.type === "map-view");
+  const tables = elements.filter(e => e.type === "table" || e.type === "comparison-table");
+  const lists = elements.filter(e => e.type === "list");
+
+  return { metrics, charts, details, compact, maps, tables, lists };
+}
+
+// ── Auto Layout Selection ───────────────────────────────
+
+export function autoSelectLayout(elements: SceneElement[]): LayoutMode {
+  const count = elements.length;
+  if (count === 0) return "focused";
+
+  const { metrics, charts, details, compact, maps, tables, lists } = classifyElements(elements);
+
+  // 1 card → focused (centered)
+  if (count === 1) return "focused";
+
+  // All metrics/compact → compact dashboard grid
+  if (compact.length === count) return "grid";
+
+  // Single detail + related cards → focused with sidebar
+  if (details.length === 1 && count >= 2 && count <= 4) return "focused";
+
+  // 2-4 mixed cards → grid
+  if (count >= 2 && count <= 4) return "grid";
+
+  // 5+ cards → grid with priority ordering
+  if (count >= 5) return "grid";
+
+  // Default
+  return "grid";
 }
 
 // ── Focus Mode Layout (Radial/Orbital) ──────────────────
@@ -113,9 +159,9 @@ export function solveFocusLayout(
   if (elements.length === 0) return { mode: "absolute", elements: layoutMap };
   if (isMobile) return solveStackLayout(elements, focusedId);
 
+  const { details } = classifyElements(elements);
   const centerId = focusedId || elements.find(e => e.priority === 1)?.id || elements[0].id;
-  const allOrbitals = elements.filter(e => e.id !== centerId);
-  const orbitals = allOrbitals.slice(0, 6);
+  const others = elements.filter(e => e.id !== centerId);
 
   // Single card: centered, reasonable size
   if (elements.length === 1) {
@@ -126,6 +172,32 @@ export function solveFocusLayout(
     });
     return { mode: "absolute", elements: layoutMap };
   }
+
+  // Single detail + related → focused center + sidebar cards
+  if (details.length === 1 && elements.length <= 4) {
+    const detailId = details[0].id;
+    const sideElements = elements.filter(e => e.id !== detailId);
+
+    layoutMap.set(detailId, {
+      x: "38%", y: "48%",
+      width: "52%", height: "75%",
+      scale: 1, opacity: 1, zIndex: 10, role: "center",
+    });
+
+    sideElements.forEach((el, i) => {
+      const yOffset = 25 + (i * 28);
+      layoutMap.set(el.id, {
+        x: "78%", y: `${yOffset}%`,
+        width: "30%", height: `${Math.min(40, 80 / sideElements.length)}%`,
+        scale: 0.95, opacity: 0.9, zIndex: 8, role: "sidebar",
+      });
+    });
+
+    return { mode: "absolute", elements: layoutMap };
+  }
+
+  // Standard focus: center + orbitals (capped at 6)
+  const orbitals = others.slice(0, 6);
 
   // Center element — takes left portion, orbitals go in right sidebar
   const hasOrbitals = orbitals.length > 0;
@@ -152,7 +224,10 @@ export function solveFocusLayout(
 
 export function solveGridLayout(elements: SceneElement[]): HUDLayout {
   const layoutMap = new Map<string, ElementLayout>();
-  elements.forEach((el) => {
+  // Sort by priority
+  const sorted = [...elements].sort((a, b) => (a.priority || 2) - (b.priority || 2));
+
+  sorted.forEach((el) => {
     const size = getContentSize(el);
     layoutMap.set(el.id, {
       x: "0", y: "0", width: "100%",
@@ -210,14 +285,17 @@ export function solveCinematicLayout(elements: SceneElement[]): HUDLayout {
 
 export function solveHUDLayout(
   elements: SceneElement[],
-  layout: LayoutMode,
+  layout: LayoutMode | "auto",
   isMobile: boolean,
   focusedId: string | null,
 ): HUDLayout {
   if (elements.length === 0) return { mode: "absolute", elements: new Map() };
   if (isMobile) return solveStackLayout(elements, focusedId);
 
-  switch (layout) {
+  // Auto-select layout if "auto" or use the provided layout
+  const resolvedLayout = layout === "auto" ? autoSelectLayout(elements) : layout;
+
+  switch (resolvedLayout) {
     case "grid":
     case "ambient":
       return solveGridLayout(elements);
@@ -255,14 +333,25 @@ export function solveLayout(
 }
 
 export function getElementGridProps(
-  _element: SceneElement,
+  element: SceneElement,
   _index: number,
-  _total: number,
+  total: number,
   _layout: LayoutMode,
   isMobile: boolean,
   _focusedId?: string | null,
 ): React.CSSProperties {
   if (isMobile) return { gridColumn: "1 / -1" };
+
+  // Compact types (metrics) in dashboard grids get smaller
+  if (COMPACT_TYPES.has(element.type) && total >= 4) {
+    return {};
+  }
+
+  // Detail types span full width in grids with many items
+  if (DETAIL_TYPES.has(element.type) && total >= 3) {
+    return { gridColumn: "1 / -1" };
+  }
+
   return {};
 }
 
