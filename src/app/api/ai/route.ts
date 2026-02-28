@@ -5,6 +5,7 @@ import { runBackgroundTasks, getTodayUsageStats } from "@/lib/background";
 import { recordToolError } from "@/lib/self-improve";
 
 import { getUser, getGoogleTokens, updateGoogleToken, loadIntegrations, loadHistory, getMessageCount, saveMessage } from "@/lib/ai/db";
+import { buildSingleShotScene } from "@/lib/ai/single-shot";
 import { loadMemoryContext } from "@/lib/ai/memory";
 import { buildSystemPrompt } from "@/lib/ai/prompt";
 import { getRelevantFeedback, getDesignPreferences, formatFeedbackForPrompt } from "@/lib/feedback";
@@ -68,20 +69,33 @@ export async function POST(req: NextRequest) {
 
   // 5. Intent prediction — prefetch data for common queries
   let prefetchedBlock = "";
+  let singleShotScene: any | null = null;
   const detected = detectIntent(message);
   if (detected && tokens.access) {
     try {
       const prefetchResults = await Promise.allSettled(
         detected.tools.map(toolName => executeTool(toolName, {}, tokens, user?.id, onRefresh))
       );
+      const toolResultsMap = new Map<string, { result: unknown }>();
       const parts: string[] = [];
       for (let i = 0; i < detected.tools.length; i++) {
         const res = prefetchResults[i];
         if (res.status === "fulfilled") {
+          toolResultsMap.set(detected.tools[i], res.value);
           parts.push(`### ${detected.tools[i]} result:\n${JSON.stringify(res.value.result)}`);
         }
       }
-      if (parts.length > 0) {
+
+      // Try single-shot: build scene directly from prefetched data
+      if (toolResultsMap.size > 0) {
+        const ssScene = buildSingleShotScene(detected.intent, toolResultsMap);
+        if (ssScene) {
+          singleShotScene = ssScene;
+        }
+      }
+
+      // Still build prefetched block as fallback (if single-shot fails or for non-single-shot intents)
+      if (!singleShotScene && parts.length > 0) {
         prefetchedBlock = `\n\n## Pre-fetched data (already retrieved — use directly, do NOT call these tools again):\n${parts.join("\n\n")}`;
       }
     } catch { /* prefetch is best-effort */ }
@@ -113,6 +127,48 @@ export async function POST(req: NextRequest) {
       };
 
       try {
+        // Single-shot fast path: emit scene directly without Claude roundtrip
+        if (singleShotScene) {
+          const scene = singleShotScene as { id: string; intent: string; layout: string; elements: Array<Record<string, unknown>>; spoken: string };
+
+          // Emit progressive cards
+          send({ type: "scene_start", sceneId: scene.id, layout: scene.layout, intent: scene.intent, spoken: scene.spoken });
+          for (let i = 0; i < scene.elements.length; i++) {
+            send({ type: "card_add", sceneId: scene.id, element: scene.elements[i], index: i, total: scene.elements.length });
+          }
+          send({ type: "scene", scene: singleShotScene });
+          send({ type: "done", text: scene.spoken });
+
+          // Save to DB
+          if (user && conversationId) {
+            const summary = scene.elements.map((el: any) => el.title || el.type).join(", ");
+            saveMessage(conversationId, "assistant", `${scene.spoken}\n[Showed ${scene.elements.length} element(s): ${summary}]`, {
+              scene_data: singleShotScene,
+              model: "single-shot",
+              tokens_in: 0,
+              tokens_out: 0,
+            }).catch(() => {});
+          }
+
+          if (user) {
+            runBackgroundTasks({
+              userId: user.id,
+              conversationId,
+              userMessage: message,
+              assistantResponse: scene.spoken,
+              model: "single-shot",
+              tokensIn: 0,
+              tokensOut: 0,
+              toolsUsed: detected?.tools || [],
+              hadErrors: false,
+              isFirstMessage,
+            });
+          }
+
+          controller.close();
+          return;
+        }
+
         let currentMessages = messages;
         let maxIterations = 5;
         let totalTokensIn = 0;
@@ -214,21 +270,32 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          // Handle display tool
+          // Handle display tool — emit cards progressively
           const displayCall = toolUses.find(t => t.name === "display");
           if (displayCall) {
             const input = displayCall.input as Record<string, unknown>;
-            const scene = {
-              id: `scene-${Date.now()}`,
-              intent: (input.intent as string) || "",
-              layout: (input.layout as string) || "focused",
-              elements: ((input.elements as Array<Record<string, unknown>>) || []).map(el => ({
-                ...el, priority: el.priority || 2, size: el.size || "md",
-              })),
-              spoken: (input.spoken as string) || "",
-            };
+            const sceneId = `scene-${Date.now()}`;
+            const layout = (input.layout as string) || "focused";
+            const intent = (input.intent as string) || "";
+            const spoken = (input.spoken as string) || "";
+            const rawElements = (input.elements as Array<Record<string, unknown>>) || [];
+
+            // Emit scene_start so client can prepare layout
+            send({ type: "scene_start", sceneId, layout, intent, spoken });
+
+            // Emit each card individually with a small delay for smooth staggering
+            const elements = rawElements.map(el => ({
+              ...el, priority: el.priority || 2, size: el.size || "md",
+            }));
+
+            for (let i = 0; i < elements.length; i++) {
+              send({ type: "card_add", sceneId, element: elements[i], index: i, total: elements.length });
+            }
+
+            // Also emit the complete scene for backwards compatibility / final state
+            const scene = { id: sceneId, intent, layout, elements, spoken };
             sceneData = scene;
-            fullResponseText = scene.spoken;
+            fullResponseText = spoken;
             send({ type: "scene", scene });
             send({ type: "done", text: fullResponseText });
             break;

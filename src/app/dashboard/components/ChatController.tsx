@@ -20,7 +20,7 @@ export function useChatController(opts: {
   pendingImages: string[];
   clearPendingImages: () => void;
   setInput: (v: string) => void;
-  setCurrentScene: (s: Scene | null) => void;
+  setCurrentScene: React.Dispatch<React.SetStateAction<Scene | null>>;
   onSceneReceived: (scene: Scene, query: string, spokenText: string) => void;
   speechLoopRef: React.MutableRefObject<boolean>;
   voiceStartListening: () => void;
@@ -208,6 +208,30 @@ export function useChatController(opts: {
                   }
                 }, 300);
               }
+            } else if (event.type === "scene_start") {
+              // Progressive streaming: initialize empty scene shell
+              const emptyScene: Scene = {
+                id: event.sceneId,
+                intent: event.intent || "",
+                layout: event.layout || "focused",
+                elements: [],
+                spoken: event.spoken || "",
+              };
+              setCurrentScene(emptyScene);
+              lastSceneRef.current = emptyScene;
+              setThinking(false);
+              setStatusText(null);
+            } else if (event.type === "card_add") {
+              // Progressive streaming: add individual card to scene
+              receivedScene = true;
+              setCurrentScene((prev: Scene | null) => {
+                if (!prev || prev.id !== event.sceneId) return prev;
+                const el = event.element;
+                if (prev.elements.some((e: any) => e.id === el.id)) return prev;
+                const updated = { ...prev, elements: [...prev.elements, el] };
+                lastSceneRef.current = updated;
+                return updated;
+              });
             } else if (event.type === "status") {
               setStatusText(event.text);
             } else if (event.type === "scene") {
