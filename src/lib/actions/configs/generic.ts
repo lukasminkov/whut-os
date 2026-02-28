@@ -25,15 +25,50 @@ export const fileActionConfig: ActionConfig = {
 
 export const tableActionConfig: ActionConfig = {
   visualizationType: "table" as any,
-  match: (elementType) => elementType === "table",
+  match: (elementType) => elementType === "table" || elementType === "comparison-table",
   actions: [
-    { id: "table-export", label: "Export CSV", icon: "FileSpreadsheet", primary: true, execute: (ctx) => { const { columns, rows } = ctx.data || {}; if (columns && rows) { const csv = [columns.join(","), ...rows.map((r: any[]) => r.join(","))].join("\n"); ctx.helpers.copyToClipboard(csv); ctx.helpers.toast("CSV copied", "success"); } } },
-    { id: "table-fullscreen", label: "Fullscreen", icon: "Maximize2", primary: true, execute: () => {} },
+    {
+      id: "table-export",
+      label: "Export CSV",
+      icon: "FileSpreadsheet",
+      primary: true,
+      execute: (ctx) => {
+        const { columns, rows } = ctx.data || {};
+        if (columns && rows) {
+          const csv = [columns.join(","), ...rows.map((r: any[]) => r.join(","))].join("\n");
+          ctx.helpers.copyToClipboard(csv);
+          ctx.helpers.toast("CSV copied", "success");
+        }
+      },
+    },
+    {
+      id: "table-expand",
+      label: "Expand",
+      icon: "Maximize2",
+      primary: true,
+      execute: (ctx) => ctx.helpers.sendToAI(`Show the table "${ctx.title || "data"}" in full detail`),
+    },
+    {
+      id: "table-filter",
+      label: "Filter",
+      icon: "Filter",
+      execute: (ctx) => ctx.helpers.sendToAI(`Filter the table data: ${ctx.title || ""}`),
+    },
+    {
+      id: "table-refresh",
+      label: "Refresh",
+      icon: "RefreshCw",
+      execute: (ctx) => ctx.helpers.sendToAI(`Refresh the data for: ${ctx.title || "this table"}`),
+    },
   ],
   aiActions: [
     { id: "table-ai-analyze", label: "Analyze Data", inline: true, prompt: (ctx) => `Analyze table:\n\n${JSON.stringify(ctx.data)}` },
+    { id: "table-ai-summarize", label: "Summarize", inline: true, prompt: (ctx) => `Summarize the key insights from this table:\n\n${JSON.stringify(ctx.data)}` },
+    { id: "table-ai-chart", label: "Visualize as Chart", prompt: (ctx) => `Create a chart visualization of this table data:\n\n${JSON.stringify(ctx.data)}` },
   ],
-  voiceCommands: [],
+  voiceCommands: [
+    { pattern: /sort by (.+)/i, description: "Sort by [column]", handler: (t, ctx) => { ctx.helpers.toast("Use column headers to sort", "info"); } },
+  ],
 };
 
 export const searchActionConfig: ActionConfig = {
