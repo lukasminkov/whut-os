@@ -3,6 +3,80 @@
 
 import type { SceneElement, LayoutMode } from "./scene-v4-types";
 
+// ── Content-Aware Sizing ────────────────────────────────
+
+export interface ContentSize {
+  preferredWidth: number;   // px
+  preferredHeight: number;  // px
+  minHeight: number;        // px
+  aspectRatio?: number;     // width/height
+}
+
+/**
+ * Returns preferred sizing based on element type and content length.
+ * Used by grid/stack modes to allocate appropriate space per card.
+ */
+export function getContentSize(element: { type: string; data?: any }): ContentSize {
+  const dataLen = element.data ? JSON.stringify(element.data).length : 0;
+
+  switch (element.type) {
+    case "metric":
+      return { preferredWidth: 200, preferredHeight: 120, minHeight: 100 };
+
+    case "list":
+    case "table":
+    case "search-results": {
+      const itemCount = element.data?.items?.length || element.data?.rows?.length || element.data?.results?.length || 0;
+      const h = Math.min(400, 120 + itemCount * 48);
+      return { preferredWidth: 600, preferredHeight: h, minHeight: 200 };
+    }
+
+    case "chart-line":
+    case "chart-bar":
+    case "chart-radial":
+    case "chart-radar":
+    case "chart-candlestick":
+    case "chart-gauge":
+      return { preferredWidth: 500, preferredHeight: 350, minHeight: 250, aspectRatio: 500 / 350 };
+
+    case "rich-entity-card":
+    case "detail": {
+      const hasImage = element.data?.heroImage || element.data?.image;
+      const h = hasImage ? 480 : 360;
+      return { preferredWidth: 450, preferredHeight: h, minHeight: 280 };
+    }
+
+    case "map-view":
+      return { preferredWidth: 800, preferredHeight: 500, minHeight: 350, aspectRatio: 16 / 10 };
+
+    case "gallery":
+      return { preferredWidth: 700, preferredHeight: 400, minHeight: 300 };
+
+    case "comparison-table": {
+      const cols = element.data?.columns?.length || 2;
+      return { preferredWidth: Math.min(900, 250 * cols), preferredHeight: 400, minHeight: 250 };
+    }
+
+    case "image":
+      return { preferredWidth: 500, preferredHeight: 400, minHeight: 200, aspectRatio: 4 / 3 };
+
+    case "timeline":
+      return { preferredWidth: 600, preferredHeight: 300, minHeight: 200 };
+
+    case "text": {
+      const contentLen = element.data?.content?.length || 0;
+      const h = Math.min(500, 120 + Math.ceil(contentLen / 80) * 24);
+      return { preferredWidth: 600, preferredHeight: h, minHeight: 120 };
+    }
+
+    case "embed":
+      return { preferredWidth: 600, preferredHeight: 450, minHeight: 300 };
+
+    default:
+      return { preferredWidth: 400, preferredHeight: 300, minHeight: 150 };
+  }
+}
+
 // ── Types ──────────────────────────────────────────────
 
 export interface ElementLayout {
@@ -101,8 +175,10 @@ export function solveFocusLayout(
 export function solveGridLayout(elements: SceneElement[]): HUDLayout {
   const layoutMap = new Map<string, ElementLayout>();
   elements.forEach((el) => {
+    const size = getContentSize(el);
     layoutMap.set(el.id, {
-      x: "0", y: "0", width: "100%", height: "100%",
+      x: "0", y: "0", width: "100%",
+      height: `${size.preferredHeight}px`,
       scale: 1, opacity: 1, zIndex: 1, role: "grid",
     });
   });
@@ -117,8 +193,11 @@ export function solveStackLayout(
 ): HUDLayout {
   const layoutMap = new Map<string, ElementLayout>();
   elements.forEach((el) => {
+    const size = getContentSize(el);
+    // Stack mode uses auto height but provides a min-height hint
     layoutMap.set(el.id, {
-      x: "50%", y: "0", width: "100%", height: "auto",
+      x: "50%", y: "0", width: "100%",
+      height: `${size.minHeight}px`,
       scale: 1, opacity: 1, zIndex: 1, role: "stack",
     });
   });
