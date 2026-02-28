@@ -53,45 +53,23 @@ export function solveFocusLayout(
     return { mode: "absolute", elements: layoutMap };
   }
 
-  // Center element
+  // Center element — takes left portion, orbitals go in right sidebar
+  const hasOrbitals = orbitals.length > 0;
   layoutMap.set(centerId, {
-    x: "50%", y: "46%",
-    width: "55%", height: "68%",
+    x: hasOrbitals ? "35%" : "50%", y: "48%",
+    width: hasOrbitals ? "58%" : "min(600px, 65%)", height: "min(600px, 78%)",
     scale: 1, opacity: 1, zIndex: 10, role: "center",
   });
 
-  if (orbitals.length === 1) {
-    layoutMap.set(orbitals[0].id, {
-      x: "84%", y: "48%",
-      width: "28%", height: "52%",
-      scale: 0.48, opacity: 0.75, zIndex: 5, role: "orbital",
+  // Orbitals render as a scrollable sidebar on the right
+  // Each orbital gets a stacked position in the right 30% of viewport
+  orbitals.forEach((el, i) => {
+    layoutMap.set(el.id, {
+      x: "80%", y: `${20 + i * (60 / Math.max(orbitals.length, 1))}%`,
+      width: "30%", height: `${Math.min(50, 55 / Math.max(orbitals.length, 1))}%`,
+      scale: 0.85, opacity: 0.9, zIndex: 5, role: "orbital",
     });
-  } else if (orbitals.length === 2) {
-    layoutMap.set(orbitals[0].id, {
-      x: "14%", y: "48%", width: "26%", height: "50%",
-      scale: 0.48, opacity: 0.75, zIndex: 5, role: "orbital",
-    });
-    layoutMap.set(orbitals[1].id, {
-      x: "86%", y: "48%", width: "26%", height: "50%",
-      scale: 0.48, opacity: 0.75, zIndex: 5, role: "orbital",
-    });
-  } else {
-    const arcSpread = Math.min(orbitals.length, 6);
-    const startAngle = -Math.PI * 0.55;
-    const endAngle = Math.PI * 0.55;
-    const step = arcSpread > 1 ? (endAngle - startAngle) / (arcSpread - 1) : 0;
-
-    orbitals.forEach((el, i) => {
-      const angle = arcSpread === 1 ? 0 : startAngle + step * i;
-      const px = 50 + Math.sin(angle) * 38;
-      const py = 50 + Math.cos(angle) * 26 + 6;
-      layoutMap.set(el.id, {
-        x: `${px}%`, y: `${py}%`,
-        width: "24%", height: "40%",
-        scale: 0.44, opacity: 0.65, zIndex: 5, role: "orbital",
-      });
-    });
-  }
+  });
 
   return { mode: "absolute", elements: layoutMap };
 }
