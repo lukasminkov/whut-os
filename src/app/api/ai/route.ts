@@ -214,21 +214,32 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          // Handle display tool
+          // Handle display tool — emit cards progressively
           const displayCall = toolUses.find(t => t.name === "display");
           if (displayCall) {
             const input = displayCall.input as Record<string, unknown>;
-            const scene = {
-              id: `scene-${Date.now()}`,
-              intent: (input.intent as string) || "",
-              layout: (input.layout as string) || "focused",
-              elements: ((input.elements as Array<Record<string, unknown>>) || []).map(el => ({
-                ...el, priority: el.priority || 2, size: el.size || "md",
-              })),
-              spoken: (input.spoken as string) || "",
-            };
+            const sceneId = `scene-${Date.now()}`;
+            const layout = (input.layout as string) || "focused";
+            const intent = (input.intent as string) || "";
+            const spoken = (input.spoken as string) || "";
+            const rawElements = (input.elements as Array<Record<string, unknown>>) || [];
+
+            // Emit scene_start so client can prepare layout
+            send({ type: "scene_start", sceneId, layout, intent, spoken });
+
+            // Emit each card individually with a small delay for smooth staggering
+            const elements = rawElements.map(el => ({
+              ...el, priority: el.priority || 2, size: el.size || "md",
+            }));
+
+            for (let i = 0; i < elements.length; i++) {
+              send({ type: "card_add", sceneId, element: elements[i], index: i, total: elements.length });
+            }
+
+            // Also emit the complete scene for backwards compatibility / final state
+            const scene = { id: sceneId, intent, layout, elements, spoken };
             sceneData = scene;
-            fullResponseText = scene.spoken;
+            fullResponseText = spoken;
             send({ type: "scene", scene });
             send({ type: "done", text: fullResponseText });
             break;

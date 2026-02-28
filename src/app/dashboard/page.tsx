@@ -284,7 +284,32 @@ export default function DashboardPage() {
           try {
             const event = JSON.parse(line);
 
-            if (event.type === "text_delta") {
+            if (event.type === "scene_start") {
+              // Progressive streaming: initialize empty scene shell
+              const emptyScene: Scene = {
+                id: event.sceneId,
+                intent: event.intent || "",
+                layout: event.layout || "focused",
+                elements: [],
+                spoken: event.spoken || "",
+              };
+              setCurrentScene(emptyScene);
+              lastSceneRef.current = emptyScene;
+              setThinking(false);
+              setStatusText(null);
+            } else if (event.type === "card_add") {
+              // Progressive streaming: add individual card to scene
+              receivedScene = true;
+              setCurrentScene(prev => {
+                if (!prev || prev.id !== event.sceneId) return prev;
+                const el = event.element;
+                // Avoid duplicates
+                if (prev.elements.some((e: any) => e.id === el.id)) return prev;
+                const updated = { ...prev, elements: [...prev.elements, el] };
+                lastSceneRef.current = updated;
+                return updated;
+              });
+            } else if (event.type === "text_delta") {
               streamingText += event.text;
               setThinking(false);
 
