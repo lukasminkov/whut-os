@@ -32,6 +32,63 @@ import {
 } from "./primitives";
 import FeedbackWidget from "./FeedbackWidget";
 
+// ── Card position/size manager for drag & resize ────────
+
+interface CardTransform {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  zIndex: number;
+  hasMoved: boolean;
+}
+
+function useCardTransforms() {
+  const [transforms, setTransforms] = useState<Map<string, CardTransform>>(new Map());
+  const zCounter = useRef(100);
+
+  const bringToFront = useCallback((id: string) => {
+    setTransforms(prev => {
+      const next = new Map(prev);
+      const t = next.get(id);
+      zCounter.current += 1;
+      if (t) {
+        next.set(id, { ...t, zIndex: zCounter.current });
+      }
+      return next;
+    });
+  }, []);
+
+  const startDrag = useCallback((id: string, startX: number, startY: number) => {
+    bringToFront(id);
+    return { startX, startY };
+  }, [bringToFront]);
+
+  const updatePosition = useCallback((id: string, dx: number, dy: number) => {
+    setTransforms(prev => {
+      const next = new Map(prev);
+      const t = next.get(id) || { x: 0, y: 0, w: 0, h: 0, zIndex: 100, hasMoved: false };
+      next.set(id, { ...t, x: t.x + dx, y: t.y + dy, hasMoved: true });
+      return next;
+    });
+  }, []);
+
+  const updateSize = useCallback((id: string, dw: number, dh: number) => {
+    setTransforms(prev => {
+      const next = new Map(prev);
+      const t = next.get(id) || { x: 0, y: 0, w: 0, h: 0, zIndex: 100, hasMoved: false };
+      next.set(id, { ...t, w: t.w + dw, h: t.h + dh, hasMoved: true });
+      return next;
+    });
+  }, []);
+
+  const getTransform = useCallback((id: string): CardTransform => {
+    return transforms.get(id) || { x: 0, y: 0, w: 0, h: 0, zIndex: 100, hasMoved: false };
+  }, [transforms]);
+
+  return { getTransform, bringToFront, startDrag, updatePosition, updateSize };
+}
+
 // ── Primitive Dispatcher ────────────────────────────────
 
 function PrimitiveContent({ element, onListExpandChange, onListItemAction, sendToAI }: { element: SceneElement; onListExpandChange?: (expanded: boolean, itemTitle?: string) => void; onListItemAction?: (item: any) => void; sendToAI?: (message: string) => void }) {
@@ -75,6 +132,47 @@ const gentleSpring = {
   mass: 1,
 };
 
+// ── Resize Handle ───────────────────────────────────────
+
+function ResizeHandle({ onResize }: { onResize: (dw: number, dh: number) => void }) {
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    onResize(dx, dy);
+  }, [onResize]);
+
+  const handlePointerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
+
+  return (
+    <div
+      className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-50 group/resize"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      style={{ touchAction: "none" }}
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" className="absolute bottom-1 right-1 opacity-0 group-hover/resize:opacity-40 transition-opacity text-white">
+        <path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
 // ── HUD Element (Absolute positioned) ───────────────────
 
 function HUDElement({
@@ -90,6 +188,10 @@ function HUDElement({
   mouseX,
   mouseY,
   userQuery,
+  cardTransform,
+  onBringToFront,
+  onDragMove,
+  onResize,
 }: {
   element: SceneElement;
   index: number;
@@ -103,11 +205,36 @@ function HUDElement({
   mouseX: number;
   mouseY: number;
   userQuery?: string;
+  cardTransform?: CardTransform;
+  onBringToFront?: () => void;
+  onDragMove?: (dx: number, dy: number) => void;
+  onResize?: (dw: number, dh: number) => void;
 }) {
   const state = SceneManager.getState();
   const isMinimized = state.minimizedIds.has(element.id);
   const [isHovered, setIsHovered] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number } | null>(null);
+
+  const handleDragStart = useCallback((e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    onBringToFront?.();
+  }, [onBringToFront]);
+
+  const handleDragPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    dragRef.current = { startX: e.clientX, startY: e.clientY };
+    onDragMove?.(dx, dy);
+  }, [onDragMove]);
+
+  const handleDragEnd = useCallback(() => {
+    dragRef.current = null;
+  }, []);
 
   const feedbackWidget = (
     <FeedbackWidget
@@ -160,68 +287,56 @@ function HUDElement({
   const hoverScale = isOrbital && isHovered ? 0.55 : elementLayout.scale;
   const hoverOpacity = isOrbital && isHovered ? 0.95 : elementLayout.opacity;
 
-  // For stack/grid modes, use flow layout
-  if (elementLayout.role === "stack") {
+  // For stack/grid modes, use flow layout with drag/resize
+  if (elementLayout.role === "stack" || elementLayout.role === "grid") {
     const contentSize = getContentSize(element);
-    return (
-      <motion.div
-        layoutId={element.id}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10, transition: { duration: 0.15 } }}
-        transition={{ ...gentleSpring, delay: index * 0.05 }}
-        style={{ maxWidth: "800px", width: "100%", margin: "0 auto", minHeight: `${contentSize.minHeight}px` }}
-      >
-        <GlassPanel
-          title={expandedTitle || element.title}
-          priority={element.priority}
-          minimized={isMinimized}
-          focused={false}
-          dimmed={false}
-          variant="default"
-          titleBarExtra={feedbackWidget}
-          staggerIndex={index}
-          onDismiss={() => SceneManager.dismissElement(element.id)}
-          onMinimize={() => SceneManager.minimizeElement(element.id)}
-        >
-          <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
-          {hasActions && actionContext && <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />}
-          {actionContext && <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />}
-        </GlassPanel>
-      </motion.div>
-    );
-  }
+    const isWideType = ["list", "table", "map-view", "comparison-table", "search-results", "timeline", "detail", "text"].includes(element.type);
+    const spanFull = elementLayout.role === "grid" && isWideType && totalElements > 1;
+    const ct = cardTransform || { x: 0, y: 0, w: 0, h: 0, zIndex: 100, hasMoved: false };
 
-  if (elementLayout.role === "grid") {
-    const contentSize = getContentSize(element);
-    // Wide types span full grid width when in multi-column grid
-    const isWideType = ["list", "table", "map-view", "comparison-table", "search-results", "timeline"].includes(element.type);
-    const spanFull = isWideType && totalElements > 1;
     return (
       <motion.div
-        layoutId={element.id}
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
+        layoutId={ct.hasMoved ? undefined : element.id}
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
         transition={{ ...gentleSpring, delay: index * 0.04 }}
-        style={{ width: "100%", minHeight: `${contentSize.minHeight}px`, gridColumn: spanFull ? "1 / -1" : undefined }}
+        onPointerMove={handleDragPointerMove}
+        onPointerUp={handleDragEnd}
+        onClick={() => onBringToFront?.()}
+        style={{
+          width: ct.hasMoved ? undefined : "100%",
+          minHeight: `${Math.max(contentSize.minHeight, 120) + ct.h}px`,
+          minWidth: `${Math.max(250 + ct.w, 250)}px`,
+          gridColumn: spanFull ? "1 / -1" : undefined,
+          maxWidth: elementLayout.role === "stack" ? "800px" : undefined,
+          margin: elementLayout.role === "stack" ? "0 auto" : undefined,
+          position: ct.hasMoved ? "relative" : undefined,
+          left: ct.hasMoved ? `${ct.x}px` : undefined,
+          top: ct.hasMoved ? `${ct.y}px` : undefined,
+          zIndex: ct.zIndex,
+        }}
       >
-        <GlassPanel
-          title={expandedTitle || element.title}
-          priority={element.priority}
-          minimized={isMinimized}
-          focused={false}
-          dimmed={false}
-          variant="default"
-          titleBarExtra={feedbackWidget}
-          staggerIndex={index}
-          onDismiss={() => SceneManager.dismissElement(element.id)}
-          onMinimize={() => SceneManager.minimizeElement(element.id)}
-        >
-          <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
-          {hasActions && actionContext && <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />}
-          {actionContext && <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />}
-        </GlassPanel>
+        <div ref={panelRef} className="relative h-full">
+          <GlassPanel
+            title={expandedTitle || element.title}
+            priority={element.priority}
+            minimized={isMinimized}
+            focused={false}
+            dimmed={false}
+            variant="default"
+            titleBarExtra={feedbackWidget}
+            staggerIndex={index}
+            onDismiss={() => SceneManager.dismissElement(element.id)}
+            onMinimize={() => SceneManager.minimizeElement(element.id)}
+            onDragStart={handleDragStart}
+          >
+            <PrimitiveContent element={element} onListExpandChange={handleListExpandChange} onListItemAction={onItemAction ? (item: any) => onItemAction(item, element) : undefined} sendToAI={sendToAI} />
+            {hasActions && actionContext && <ActionBar actions={elementActions} aiActions={elementAIActions} context={actionContext} className="mt-2" />}
+            {actionContext && <AIOverlay content={overlayContent} onClose={clearOverlay} onSendToChat={(c) => { sendToAI?.(c); clearOverlay(); }} onCopy={(c) => { navigator.clipboard?.writeText(c); clearOverlay(); }} />}
+          </GlassPanel>
+          {onResize && <ResizeHandle onResize={onResize} />}
+        </div>
       </motion.div>
     );
   }
@@ -314,6 +429,9 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
   const containerRef = useRef<HTMLDivElement>(null);
 
   const focusedId = SceneManager.getFocusedId();
+
+  // Card drag/resize transforms
+  const cardTransforms = useCardTransforms();
 
   // Mouse tracking for parallax
   const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
@@ -473,20 +591,20 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
           </AnimatePresence>
         </div>
       ) : isGridMode ? (
-        /* Grid mode — CSS grid */
-        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto flex items-start justify-center">
+        /* Grid mode — CSS grid dashboard layout */
+        <div className="relative z-10 px-4 md:px-8 pb-32 flex-1 min-h-0 overflow-y-auto flex items-start justify-center">
           <div
             ref={containerRef}
             className="w-full"
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : `repeat(${gridCols}, minmax(0, ${visibleElements.length === 1 ? '560px' : '1fr'}))`,
+              gridTemplateColumns: isMobile ? "1fr" : visibleElements.length === 1 ? "minmax(0, 700px)" : visibleElements.length === 2 ? "1.2fr 0.8fr" : `repeat(${gridCols}, minmax(0, 1fr))`,
               gridAutoRows: "auto",
               alignItems: "start",
               gap: isMobile ? "12px" : "20px",
-              maxWidth: visibleElements.length === 1 ? "600px" : visibleElements.length <= 3 ? "1100px" : "100%",
+              maxWidth: visibleElements.length === 1 ? "700px" : "100%",
               margin: "0 auto",
-              paddingTop: visibleElements.length === 1 ? "clamp(24px, 8vh, 80px)" : "16px",
+              paddingTop: "16px",
             }}
           >
             <AnimatePresence mode="popLayout">
@@ -507,7 +625,11 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                     onPromote={handlePromote}
                     mouseX={mousePos.x}
                     mouseY={mousePos.y}
-                  userQuery={scene.intent}
+                    userQuery={scene.intent}
+                    cardTransform={cardTransforms.getTransform(el.id)}
+                    onBringToFront={() => cardTransforms.bringToFront(el.id)}
+                    onDragMove={(dx, dy) => cardTransforms.updatePosition(el.id, dx, dy)}
+                    onResize={(dw, dh) => cardTransforms.updateSize(el.id, dw, dh)}
                   />
                 );
               })}
@@ -516,7 +638,7 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
         </div>
       ) : (
         /* Stack mode — vertical flow */
-        <div className="relative z-10 px-4 md:px-8 pb-24 flex-1 min-h-0 overflow-y-auto">
+        <div className="relative z-10 px-4 md:px-8 pb-32 flex-1 min-h-0 overflow-y-auto">
           <div ref={containerRef} className="mx-auto w-full flex flex-col gap-4" style={{ maxWidth: "800px" }}>
             <AnimatePresence mode="popLayout">
               {visibleElements.map((el, i) => {
@@ -536,7 +658,11 @@ export default function SceneRendererV4({ scene, onClose, onItemAction, sendToAI
                     onPromote={handlePromote}
                     mouseX={mousePos.x}
                     mouseY={mousePos.y}
-                  userQuery={scene.intent}
+                    userQuery={scene.intent}
+                    cardTransform={cardTransforms.getTransform(el.id)}
+                    onBringToFront={() => cardTransforms.bringToFront(el.id)}
+                    onDragMove={(dx, dy) => cardTransforms.updatePosition(el.id, dx, dy)}
+                    onResize={(dw, dh) => cardTransforms.updateSize(el.id, dw, dh)}
                   />
                 );
               })}

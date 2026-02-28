@@ -122,14 +122,22 @@ export default function SkeletonCards({ query }: SkeletonCardsProps) {
   const types = intentToSkeletons(query);
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center">
-      <div className="flex gap-4 max-w-[900px] w-full px-8">
+    <div className="relative z-10 px-4 md:px-8 pb-24 pt-4 flex items-start justify-center">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: types.length === 1 ? "minmax(0, 560px)" : `repeat(${Math.min(types.length, 3)}, minmax(0, 1fr))`,
+          gap: "20px",
+          maxWidth: types.length === 1 ? "600px" : "1100px",
+          width: "100%",
+        }}
+      >
         {types.map((type, i) => {
           const Skeleton = SKELETON_MAP[type];
           return (
             <motion.div
               key={i}
-              className="flex-1 rounded-2xl border border-white/[0.08] overflow-hidden"
+              className="rounded-2xl border border-white/[0.08] overflow-hidden"
               style={{
                 background: "rgba(8, 12, 20, 0.65)",
                 backdropFilter: "blur(40px)",
