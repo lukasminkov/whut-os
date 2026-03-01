@@ -1,7 +1,7 @@
 // WHUT OS V4 — Jarvis HUD Layout Engine
 // Clean centered layout with responsive grid + auto-layout intelligence
 
-import type { SceneElement, LayoutMode, PrimitiveType } from "./scene-v4-types";
+import type { SceneElement, LayoutMode, PrimitiveType, ElementRole } from "./scene-v4-types";
 
 // ── Content-Aware Sizing ────────────────────────────────
 
@@ -87,7 +87,7 @@ export interface ElementLayout {
   scale: number;
   opacity: number;
   zIndex: number;
-  role: "center" | "orbital" | "grid" | "stack" | "cinematic-main" | "cinematic-overlay" | "sidebar";
+  role: "center" | "orbital" | "grid" | "stack" | "cinematic-main" | "cinematic-overlay" | "sidebar" | "spatial-primary" | "spatial-supporting" | "spatial-context";
 }
 
 export interface SolvedLayout {
@@ -281,6 +281,110 @@ export function solveCinematicLayout(elements: SceneElement[]): HUDLayout {
   return { mode: "absolute", elements: layoutMap };
 }
 
+// ── Spatial Mode Layout (Center-Out Hierarchy) ──────────
+
+export function solveSpatialLayout(
+  elements: SceneElement[],
+  focusedId: string | null,
+  isMobile: boolean,
+): HUDLayout {
+  const layoutMap = new Map<string, ElementLayout>();
+  if (elements.length === 0) return { mode: "absolute", elements: layoutMap };
+  if (isMobile) return solveStackLayout(elements, focusedId);
+
+  // Classify elements by role
+  const primaryId = focusedId
+    || elements.find(e => e.role === "primary")?.id
+    || elements.find(e => e.priority === 1)?.id
+    || elements[0].id;
+
+  const supporting = elements.filter(e => e.id !== primaryId && (e.role === "supporting" || e.role !== "context"));
+  const context = elements.filter(e => e.id !== primaryId && e.role === "context");
+  const supportingCards = supporting.filter(e => e.role !== "context");
+
+  // Single card: large and centered
+  if (elements.length === 1) {
+    layoutMap.set(primaryId, {
+      x: "50%", y: "46%",
+      width: "min(650px, 60%)", height: "min(550px, 75%)",
+      scale: 1, opacity: 1, zIndex: 20, role: "spatial-primary",
+    });
+    return { mode: "absolute", elements: layoutMap };
+  }
+
+  // Primary card — prominent center
+  layoutMap.set(primaryId, {
+    x: "50%", y: "45%",
+    width: "58%", height: "min(600px, 72%)",
+    scale: 1, opacity: 1, zIndex: 20, role: "spatial-primary",
+  });
+
+  // Position supporting cards around the primary
+  const supCount = supportingCards.length;
+  const positions = getSupportingPositions(supCount);
+
+  supportingCards.forEach((el, i) => {
+    if (i >= positions.length) return; // safety cap
+    const pos = positions[i];
+    layoutMap.set(el.id, {
+      x: pos.x, y: pos.y,
+      width: pos.width, height: pos.height,
+      scale: pos.scale, opacity: 0.88, zIndex: 10 - i,
+      role: "spatial-supporting",
+    });
+  });
+
+  // Context cards — smallest, peeking at edges
+  context.forEach((el, i) => {
+    const side = i % 2 === 0 ? "6%" : "94%";
+    layoutMap.set(el.id, {
+      x: side, y: `${35 + i * 20}%`,
+      width: "18%", height: "22%",
+      scale: 0.7, opacity: 0.6, zIndex: 2,
+      role: "spatial-context",
+    });
+  });
+
+  return { mode: "absolute", elements: layoutMap };
+}
+
+function getSupportingPositions(count: number): Array<{ x: string; y: string; width: string; height: string; scale: number }> {
+  const base = { scale: 0.8 };
+  const w = "28%";
+  const h = "38%";
+
+  switch (count) {
+    case 0: return [];
+    case 1: return [
+      { x: "84%", y: "45%", width: w, height: h, ...base },
+    ];
+    case 2: return [
+      { x: "15%", y: "45%", width: "24%", height: h, ...base },
+      { x: "85%", y: "45%", width: "24%", height: h, ...base },
+    ];
+    case 3: return [
+      { x: "15%", y: "40%", width: "22%", height: "34%", ...base },
+      { x: "85%", y: "40%", width: "22%", height: "34%", ...base },
+      { x: "50%", y: "88%", width: "32%", height: "22%", scale: 0.78 },
+    ];
+    default: {
+      // 4+: left, right, top, bottom
+      const positions = [
+        { x: "15%", y: "45%", width: "22%", height: "34%", scale: 0.78 },
+        { x: "85%", y: "45%", width: "22%", height: "34%", scale: 0.78 },
+        { x: "50%", y: "8%", width: "28%", height: "20%", scale: 0.75 },
+        { x: "50%", y: "90%", width: "28%", height: "20%", scale: 0.75 },
+      ];
+      // Extra cards split left/right bottom
+      for (let i = 4; i < Math.min(count, 8); i++) {
+        const side = i % 2 === 0 ? "25%" : "75%";
+        positions.push({ x: side, y: "88%", width: "20%", height: "18%", scale: 0.72 });
+      }
+      return positions;
+    }
+  }
+}
+
 // ── Master Layout Solver ────────────────────────────────
 
 export function solveHUDLayout(
@@ -296,6 +400,8 @@ export function solveHUDLayout(
   const resolvedLayout = layout === "auto" ? autoSelectLayout(elements) : layout;
 
   switch (resolvedLayout) {
+    case "spatial":
+      return solveSpatialLayout(elements, focusedId, isMobile);
     case "grid":
     case "ambient":
       return solveGridLayout(elements);

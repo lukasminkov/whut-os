@@ -8,6 +8,7 @@ import type { AppMode } from "@/components/ModeToggle";
 import type { OrbState } from "@/components/AIOrb";
 import { usePrefetch } from "@/hooks/usePrefetch";
 import { screenContextStore } from "@/lib/screen-context";
+import { getIntentTheme, applyIntentTheme } from "@/lib/intent-theme";
 import type { WindowType } from "@/features/window-manager";
 import FileBrowser from "@/features/file-system/FileBrowser";
 import { EmbeddedBrowser } from "@/features/browser";
@@ -161,9 +162,12 @@ export default function DashboardPage() {
     window.dispatchEvent(new CustomEvent("whut-ai-state", { detail: { thinking: chat.thinking } }));
   }, [chat.thinking]);
 
-  // Clear skeleton when scene arrives
+  // Clear skeleton when scene arrives + apply intent theme
   useEffect(() => {
-    if (currentScene) setSkeletonQuery(null);
+    if (currentScene) {
+      setSkeletonQuery(null);
+      applyIntentTheme(getIntentTheme(currentScene.intent));
+    }
   }, [currentScene]);
 
   const orbState: OrbState = currentScene

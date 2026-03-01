@@ -44,11 +44,16 @@ Layout modes (Jarvis HUD):
 - minimal: Narrow column text-only (legacy alias for stack).
 
 LAYOUT SELECTION GUIDE:
-- 1 main thing + supporting context → "focused" (email + metadata, chart + explanation)
-- Multiple equal items to compare → "grid" (KPI dashboard, email list + calendar)
+- DEFAULT for most queries → "spatial" — primary card in center, supporting cards around it
+- Multiple equal items to compare → "grid" (KPI dashboard, multiple metrics)
 - Documents, articles, long reads → "stack"
 - Maps, photos, videos → "cinematic"
-Priority: 1=center stage (hero), 2=orbital/supporting, 3=background/ambient`,
+
+ROLE ASSIGNMENT:
+- Set role="primary" on the ONE card that directly answers the user's query
+- Set role="supporting" on cards with related/supplementary info
+- Set role="context" on background/ambient info cards
+Priority: 1=primary, 2=supporting, 3=context`,
   input_schema: {
     type: "object" as const,
     properties: {
@@ -62,8 +67,8 @@ Priority: 1=center stage (hero), 2=orbital/supporting, 3=background/ambient`,
       },
       layout: {
         type: "string",
-        enum: ["focused", "grid", "stack", "cinematic", "ambient", "split", "immersive", "minimal"],
-        description: "Layout mode. 'focused' = center stage + orbitals (default). 'grid' = equal cards. 'stack' = vertical reading. 'cinematic' = fullscreen + overlays.",
+        enum: ["spatial", "focused", "grid", "stack", "cinematic", "ambient", "split", "immersive", "minimal"],
+        description: "Layout mode. 'spatial' = center-out hierarchy with primary card prominent in center and supporting cards arranged around it (DEFAULT — use this for most queries). 'focused' = center stage + orbitals. 'grid' = equal cards. 'stack' = vertical reading. 'cinematic' = fullscreen + overlays.",
       },
       elements: {
         type: "array",
@@ -76,6 +81,7 @@ Priority: 1=center stage (hero), 2=orbital/supporting, 3=background/ambient`,
             data: { type: "object", description: "Primitive-specific data (see type descriptions)" },
             priority: { type: "number", enum: [1, 2, 3] },
             size: { type: "string", enum: ["xs", "sm", "md", "lg", "xl", "full"] },
+            role: { type: "string", enum: ["primary", "supporting", "context"], description: "Card importance: 'primary' = the main answer to the user's query (1 per scene), 'supporting' = related supplementary info, 'context' = background/ambient info" },
           },
           required: ["id", "type", "data", "priority"],
         },

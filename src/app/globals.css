@@ -4,6 +4,10 @@
   --bg-base: #06060f;
   --accent: #00d4aa;
   --accent-secondary: #6366f1;
+  --accent-rgb: 0, 212, 170;
+  --accent-hex: #00d4aa;
+  --accent-glow: rgba(0, 212, 170, 0.15);
+  --accent-bg-tint: rgba(0, 212, 170, 0.02);
 }
 
 @theme inline {

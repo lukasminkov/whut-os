@@ -275,17 +275,22 @@ function HUDElement({
     }
   };
 
-  const isCenter = elementLayout.role === "center" || elementLayout.role === "cinematic-main";
+  const isCenter = elementLayout.role === "center" || elementLayout.role === "cinematic-main" || elementLayout.role === "spatial-primary";
   const isOrbital = elementLayout.role === "orbital";
+  const isSpatialSupporting = elementLayout.role === "spatial-supporting";
+  const isSpatialContext = elementLayout.role === "spatial-context";
+  const isPeripheral = isOrbital || isSpatialSupporting || isSpatialContext;
   const isCinematicOverlay = elementLayout.role === "cinematic-overlay";
 
-  // Parallax offset for orbital elements (subtle mouse tracking)
-  const parallaxX = isOrbital ? (mouseX - 0.5) * 12 : 0;
-  const parallaxY = isOrbital ? (mouseY - 0.5) * 8 : 0;
+  // Parallax offset for peripheral elements (subtle mouse tracking)
+  const parallaxX = isPeripheral ? (mouseX - 0.5) * 12 : 0;
+  const parallaxY = isPeripheral ? (mouseY - 0.5) * 8 : 0;
 
-  // Hover scale boost for orbitals
-  const hoverScale = isOrbital && isHovered ? 0.55 : elementLayout.scale;
-  const hoverOpacity = isOrbital && isHovered ? 0.95 : elementLayout.opacity;
+  // Hover scale boost for peripheral elements
+  const hoverScale = isPeripheral && isHovered
+    ? Math.min(elementLayout.scale + 0.08, 0.95)
+    : elementLayout.scale;
+  const hoverOpacity = isPeripheral && isHovered ? 0.95 : elementLayout.opacity;
 
   // For stack/grid modes, use flow layout with drag/resize
   if (elementLayout.role === "stack" || elementLayout.role === "grid") {
@@ -351,10 +356,10 @@ function HUDElement({
         top: elementLayout.y,
         width: elementLayout.width,
         height: elementLayout.height === "auto" ? "auto" : elementLayout.height,
-        zIndex: isHovered && isOrbital ? elementLayout.zIndex + 5 : elementLayout.zIndex,
+        zIndex: isHovered && isPeripheral ? elementLayout.zIndex + 5 : elementLayout.zIndex,
         transform: "translate(-50%, -50%)",
         pointerEvents: "auto",
-        cursor: isOrbital ? "pointer" : "default",
+        cursor: isPeripheral ? "pointer" : "default",
       }}
       initial={{
         opacity: 0,
@@ -376,7 +381,7 @@ function HUDElement({
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
       onClick={(e) => {
-        if (isOrbital && !(e.target as HTMLElement).closest("button")) {
+        if (isPeripheral && !(e.target as HTMLElement).closest("button")) {
           onPromote(element.id);
         }
       }}
@@ -388,8 +393,8 @@ function HUDElement({
           minimized={isMinimized}
           focused={isCenter}
           dimmed={false}
-          variant={isCenter ? "center" : isOrbital ? "orbital" : isCinematicOverlay ? "cinematic-overlay" : "default"}
-          onFocus={isOrbital ? () => onPromote(element.id) : undefined}
+          variant={isCenter ? "center" : isPeripheral ? "orbital" : isCinematicOverlay ? "cinematic-overlay" : "default"}
+          onFocus={isPeripheral ? () => onPromote(element.id) : undefined}
           titleBarExtra={feedbackWidget}
           staggerIndex={index}
           onDismiss={() => SceneManager.dismissElement(element.id)}

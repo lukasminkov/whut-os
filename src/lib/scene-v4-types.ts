@@ -21,7 +21,8 @@ export type PrimitiveType =
   | "gallery"
   | "comparison-table";
 
-export type LayoutMode = "ambient" | "focused" | "split" | "immersive" | "minimal" | "grid" | "stack" | "cinematic";
+export type LayoutMode = "ambient" | "focused" | "split" | "immersive" | "minimal" | "grid" | "stack" | "cinematic" | "spatial";
+export type ElementRole = "primary" | "supporting" | "context";
 export type ElementPriority = 1 | 2 | 3;
 export type ElementSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
 export type ElementPosition = "left" | "right" | "center" | "top" | "bottom" | "float";
@@ -41,6 +42,7 @@ export interface SceneElement {
   onClose?: CloseAction;
   canReopen?: boolean;
   title?: string;
+  role?: ElementRole;
 }
 
 export interface Scene {

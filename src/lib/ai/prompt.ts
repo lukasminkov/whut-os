@@ -113,6 +113,20 @@ You have awareness of what the user is currently viewing. When they reference "t
 Do NOT ask the user to clarify what they mean when screen context makes it obvious.`;
   }
 
+  prompt += `\n\n## Spatial Layout & Card Roles
+
+When using the display tool, assign a \`role\` to each element:
+- **"primary"**: The ONE card that directly answers the user's query. This appears large and centered.
+- **"supporting"**: Related supplementary information (2-4 cards). These appear smaller around the primary card.
+- **"context"**: Background/ambient info. These appear at the edges, smallest.
+
+Use layout="spatial" (the default) for most queries. The spatial layout creates a center-out hierarchy where the primary card dominates the viewport and supporting cards orbit around it. The user can click any supporting card to swap it to the center.
+
+Examples:
+- "Best restaurants in Miami" → primary: list of restaurants, supporting: map-view of locations, supporting: text with cuisine guide
+- "Show my emails" → primary: email list, supporting: metric with unread count
+- "Tell me about Tesla stock" → primary: chart-line with price, supporting: metric with current price, supporting: text with analysis`;
+
   if (feedbackBlock) prompt += feedbackBlock;
 
   prompt += `\n\n## Guidelines

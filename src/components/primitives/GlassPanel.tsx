@@ -72,10 +72,13 @@ export default function GlassPanel({
 
   const v = variantStyles[variant] || variantStyles.default;
 
-  const borderFinal = focused ? "rgba(0,212,170,0.25)" : v.border;
-  const glowFinal = focused
-    ? "0 0 30px rgba(0,212,170,0.12), 0 0 60px rgba(0,212,170,0.05)"
-    : v.glow;
+  // Use CSS custom properties for adaptive accent colors
+  const accentBorder = `rgba(var(--accent-rgb, 0,212,170), ${focused ? 0.25 : variant === "center" ? 0.2 : variant === "orbital" ? 0.06 : 0.08})`;
+  const accentGlow = focused
+    ? `0 0 30px rgba(var(--accent-rgb, 0,212,170), 0.12), 0 0 60px rgba(var(--accent-rgb, 0,212,170), 0.05)`
+    : v.glow.replace(/0,\s*212,\s*170/g, "var(--accent-rgb, 0,212,170)");
+  const borderFinal = focused ? accentBorder : accentBorder;
+  const glowFinal = accentGlow;
   const bgFinal = focused ? "rgba(6,10,18,0.85)" : v.bg;
 
   return (
@@ -128,7 +131,7 @@ export default function GlassPanel({
               style={{
                 fontSize: isHero ? "10px" : "9px",
                 color: variant === "center" || focused
-                  ? "rgba(0,212,170,0.7)"
+                  ? `rgba(var(--accent-rgb, 0,212,170), 0.7)`
                   : "rgba(255,255,255,0.35)",
                 letterSpacing: "0.18em",
               }}
